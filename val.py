@@ -12,7 +12,7 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 import archs
-from dataset import Dataset
+from dataset import nnUNetDataset
 from metrics import iou_score
 from utils import AverageMeter
 from albumentations import RandomRotate90,Resize
@@ -25,6 +25,14 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name')
+    parser.add_argument('--train_dataset', default='Dataset073_GE_LE',
+                        help='train dataset name')
+    parser.add_argument('--train_fold', type=int, required=True,
+                        help='train fold index (0-4) or "all" to combine all folds')
+    parser.add_argument('--test_dataset', type=str, required=True,
+                        help='test dataset name')
+    parser.add_argument('--test_split', type=str, required=True,
+                        help='test split (Ts or Te)')
 
     args = parser.parse_args()
 
@@ -34,7 +42,8 @@ def parse_args():
 def main():
     args = parse_args()
 
-    with open('models/%s/config.yml' % args.name, 'r') as f:
+    model_dir = f"models/{args.train_dataset}/fold_{args.train_fold}"
+    with open(f'{model_dir}/config.yml', 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
     print('-'*20)
@@ -51,14 +60,7 @@ def main():
 
     model = model.cuda()
 
-    # Data loading code
-    img_ids = glob(os.path.join('inputs', config['dataset'], 'images', '*' + config['img_ext']))
-    img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
-
-    _, val_img_ids = train_test_split(img_ids, test_size=0.2, random_state=41)
-
-    model.load_state_dict(torch.load('models/%s/model.pth' %
-                                     config['name']))
+    model.load_state_dict(torch.load(os.path.join(model_dir, 'model.pth')))
     model.eval()
 
     val_transform = Compose([
@@ -66,14 +68,11 @@ def main():
         transforms.Normalize(),
     ])
 
-    val_dataset = Dataset(
-        img_ids=val_img_ids,
-        img_dir=os.path.join('inputs', config['dataset'], 'images'),
-        mask_dir=os.path.join('inputs', config['dataset'], 'masks'),
-        img_ext=config['img_ext'],
-        mask_ext=config['mask_ext'],
-        num_classes=config['num_classes'],
-        transform=val_transform)
+    val_dataset = nnUNetDataset(
+        dataset_name=args.test_dataset,
+        split=args.test_split,
+        transform=val_transform,
+        eval=True)
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=config['batch_size'],
@@ -86,9 +85,8 @@ def main():
     gput = AverageMeter()
     cput = AverageMeter()
 
-    count = 0
-    for c in range(config['num_classes']):
-        os.makedirs(os.path.join('outputs', config['name'], str(c)), exist_ok=True)
+    save_dir = os.path.join(model_dir, 'test', args.test_dataset, 'preds')
+    os.makedirs(save_dir, exist_ok=True)
     with torch.no_grad():
         for input, target, meta in tqdm(val_loader, total=len(val_loader)):
             input = input.cuda()
@@ -108,8 +106,8 @@ def main():
 
             for i in range(len(output)):
                 for c in range(config['num_classes']):
-                    cv2.imwrite(os.path.join('outputs', config['name'], str(c), meta['img_id'][i] + '.jpg'),
-                                (output[i, c] * 255).astype('uint8'))
+                    cv2.imwrite(os.path.join(save_dir, meta['img_id'][i] + '.png'),
+                            (output[i, c] * 255).astype('uint8'))
 
     print('IoU: %.4f' % iou_avg_meter.avg)
     print('Dice: %.4f' % dice_avg_meter.avg)

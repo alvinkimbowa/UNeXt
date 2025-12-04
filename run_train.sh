@@ -18,11 +18,14 @@ input_h=512
 b=8
 fold=0
 
+# Evaluation settings
+test_dataset="Dataset073_GE_LE"
+test_split="Tr"
+
 if [[ $train -eq 1 ]]; then
     python train.py \
         --dataset $dataset_name \
         --arch $arch \
-        --name $exp_name \
         --lr $lr \
         --epochs $epochs \
         --input_w $input_w \
@@ -33,5 +36,8 @@ fi
 
 if [[ $eval -eq 1 ]]; then
     python val.py \
-        --name $exp_name
+        --train_dataset $dataset_name \
+        --train_fold $fold \
+        --test_dataset $test_dataset \
+        --test_split $test_split
 fi

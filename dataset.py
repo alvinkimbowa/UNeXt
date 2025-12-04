@@ -1,4 +1,5 @@
 import os
+import json
 
 import cv2
 import numpy as np
@@ -72,5 +73,57 @@ class Dataset(torch.utils.data.Dataset):
         img = img.transpose(2, 0, 1)
         mask = mask.astype('float32') / 255
         mask = mask.transpose(2, 0, 1)
+        
+        return img, mask, {'img_id': img_id}
+
+
+class nnUNetDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset_name, split, fold, split_type='train', num_classes=1, transform=None):
+        nnunet_raw = os.environ['nnUNet_raw']
+        nnunet_preprocessed = os.environ['nnUNet_preprocessed']
+        
+        with open(os.path.join(f'{nnunet_preprocessed}/{dataset_name}/dataset.json'), 'r') as f:
+            dataset_info = json.load(f)
+        img_ext = dataset_info['file_ending']
+        
+        with open(os.path.join(f'{nnunet_preprocessed}/{dataset_name}/splits_final.json'), 'r') as f:
+            splits = json.load(f)
+        
+        if fold == 'all':
+            img_ids = []
+            for split_dict in splits:
+                img_ids.extend(split_dict[split_type])
+            img_ids = list(set(img_ids))
+        else:
+            img_ids = splits[fold][split_type]
+        
+        self.img_ids = img_ids
+        self.img_dir = os.path.join(f'{nnunet_raw}/{dataset_name}/images{split}')
+        self.label_dir = os.path.join(f'{nnunet_raw}/{dataset_name}/labels{split}')
+        self.img_ext = img_ext
+        self.num_classes = num_classes
+        self.transform = transform
+        self.dataset_name = dataset_name
+    
+    def __len__(self):
+        return len(self.img_ids)
+    
+    def __getitem__(self, idx):
+        img_id = self.img_ids[idx]
+        img_filename = f'{self.img_dir}/{img_id}_0000{self.img_ext}'
+        label_filename = f'{self.label_dir}/{img_id}{self.img_ext}'
+        
+        img = cv2.imread(os.path.join(self.img_dir, img_filename))
+        mask = cv2.imread(os.path.join(self.label_dir, label_filename), cv2.IMREAD_GRAYSCALE)[..., None]
+        
+        if self.transform is not None:
+            augmented = self.transform(image=img, mask=mask)
+            img = augmented['image']
+            mask = augmented['mask']
+        
+        img = img.astype('float32') / 255
+        img = img.transpose(2, 0, 1)
+        mask = mask.astype('float32')
+        mask = mask.transpose(2, 0, 1)   
         
         return img, mask, {'img_id': img_id}

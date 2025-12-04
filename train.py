@@ -197,20 +197,22 @@ def validate(config, val_loader, model, criterion):
 def main():
     config = vars(parse_args())
 
+    fold_str = str(config['fold'])
+    model_dir = f"models/{config['dataset']}/fold_{fold_str}"
+    os.makedirs(model_dir, exist_ok=True)
+    
     if config['name'] is None:
         if config['deep_supervision']:
             config['name'] = '%s_%s_wDS' % (config['dataset'], config['arch'])
         else:
             config['name'] = '%s_%s_woDS' % (config['dataset'], config['arch'])
-    
-    os.makedirs('models/%s' % config['name'], exist_ok=True)
 
     print('-' * 20)
     for key in config:
         print('%s: %s' % (key, config[key]))
     print('-' * 20)
 
-    with open('models/%s/config.yml' % config['name'], 'w') as f:
+    with open(f'{model_dir}/config.yml', 'w') as f:
         yaml.dump(config, f)
 
     # define loss function (criterion)
@@ -328,14 +330,12 @@ def main():
         log['val_iou'].append(val_log['iou'])
         log['val_dice'].append(val_log['dice'])
 
-        pd.DataFrame(log).to_csv('models/%s/log.csv' %
-                                 config['name'], index=False)
+        pd.DataFrame(log).to_csv(f'{model_dir}/log.csv', index=False)
 
         trigger += 1
 
         if val_log['iou'] > best_iou:
-            torch.save(model.state_dict(), 'models/%s/model.pth' %
-                       config['name'])
+            torch.save(model.state_dict(), f'{model_dir}/model.pth')
             best_iou = val_log['iou']
             print("=> saved best model")
             trigger = 0

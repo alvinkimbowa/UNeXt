@@ -1,0 +1,9 @@
+# Install mmcv-full before install torch
+timm
+pandas
+matplotlib
+albumentations
+scikit-learn
+tensorboard
+albucore==0.0.16
+mmcv

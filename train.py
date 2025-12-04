@@ -14,10 +14,10 @@ from albumentations.core.composition import Compose, OneOf
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
 from tqdm import tqdm
-from albumentations import RandomRotate90,Resize
+from albumentations import RandomRotate90,Resize,Flip
 import archs
 import losses
-from dataset import Dataset
+from dataset import Dataset, nnUNetDataset
 from metrics import iou_score
 from utils import AverageMeter, str2bool
 from archs import UNext
@@ -65,6 +65,10 @@ def parse_args():
                         help='image file extension')
     parser.add_argument('--mask_ext', default='.png',
                         help='mask file extension')
+    parser.add_argument('--split', default='Tr',
+                        help='split (Tr or Ts)')
+    parser.add_argument('--fold', default=0,
+                        help='fold index (0-4) or "all" to combine all folds')
 
     # optimizer
     parser.add_argument('--optimizer', default='Adam',
@@ -247,15 +251,9 @@ def main():
     else:
         raise NotImplementedError
 
-    # Data loading code
-    img_ids = glob(os.path.join('inputs', config['dataset'], 'images', '*' + config['img_ext']))
-    img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
-
-    train_img_ids, val_img_ids = train_test_split(img_ids, test_size=0.2, random_state=41)
-
     train_transform = Compose([
         RandomRotate90(),
-        transforms.Flip(),
+        Flip(),
         Resize(config['input_h'], config['input_w']),
         transforms.Normalize(),
     ])
@@ -265,20 +263,19 @@ def main():
         transforms.Normalize(),
     ])
 
-    train_dataset = Dataset(
-        img_ids=train_img_ids,
-        img_dir=os.path.join('inputs', config['dataset'], 'images'),
-        mask_dir=os.path.join('inputs', config['dataset'], 'masks'),
-        img_ext=config['img_ext'],
-        mask_ext=config['mask_ext'],
+    train_dataset = nnUNetDataset(
+        dataset_name=config['dataset'],
+        split=config['split'],
+        fold=config['fold'],
+        split_type='train',
         num_classes=config['num_classes'],
         transform=train_transform)
-    val_dataset = Dataset(
-        img_ids=val_img_ids,
-        img_dir=os.path.join('inputs', config['dataset'], 'images'),
-        mask_dir=os.path.join('inputs', config['dataset'], 'masks'),
-        img_ext=config['img_ext'],
-        mask_ext=config['mask_ext'],
+    
+    val_dataset = nnUNetDataset(
+        dataset_name=config['dataset'],
+        split=config['split'],
+        fold=config['fold'],
+        split_type='val',
         num_classes=config['num_classes'],
         transform=val_transform)
 

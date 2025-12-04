@@ -86,7 +86,7 @@ class nnUNetDataset(torch.utils.data.Dataset):
         self.img_dir = os.path.join(f'{nnunet_raw}/{dataset_name}/images{split}')
         self.label_dir = os.path.join(f'{nnunet_raw}/{dataset_name}/labels{split}')
         
-        with open(os.path.join(f'{nnunet_preprocessed}/{dataset_name}/dataset.json'), 'r') as f:
+        with open(os.path.join(f'{nnunet_raw}/{dataset_name}/dataset.json'), 'r') as f:
             dataset_info = json.load(f)
         self.img_ext = dataset_info['file_ending']
         

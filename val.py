@@ -68,11 +68,21 @@ def main():
         transforms.Normalize(),
     ])
 
-    val_dataset = nnUNetDataset(
-        dataset_name=args.test_dataset,
-        split=args.test_split,
-        transform=val_transform,
-        eval=True)
+    if args.test_dataset == args.train_dataset:
+        assert args.train_fold != 'all', "TODO: Implement validation for all folds"
+        val_dataset = nnUNetDataset(
+            dataset_name=args.test_dataset,
+            split=args.test_split,
+            fold=args.train_fold,
+            split_type='val',
+            transform=val_transform,
+            eval=False)
+    else:
+        val_dataset = nnUNetDataset(
+            dataset_name=args.test_dataset,
+            split=args.test_split,
+            transform=val_transform,
+            eval=True)
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=config['batch_size'],

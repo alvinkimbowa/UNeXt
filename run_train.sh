@@ -19,7 +19,7 @@ b=8
 fold=0
 
 # Evaluation settings
-test_dataset="Dataset073_GE_LE"
+test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
 test_split="Tr"
 
 if [[ $train -eq 1 ]]; then
@@ -35,9 +35,17 @@ if [[ $train -eq 1 ]]; then
 fi
 
 if [[ $eval -eq 1 ]]; then
-    python val.py \
+    for test_dataset in ${test_datasets[@]}; do
+        echo "Evaluating $test_dataset"
+        if [[ $test_dataset == "Dataset078_KneeUS_OtherDevices" ]]; then
+            test_split="Ts"
+        else
+            test_split="Tr"
+        fi
+        python val.py \
         --train_dataset $dataset_name \
         --train_fold $fold \
         --test_dataset $test_dataset \
         --test_split $test_split
+    done
 fi

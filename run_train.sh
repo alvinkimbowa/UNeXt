@@ -12,10 +12,11 @@ dataset_name="Dataset073_GE_LE"
 arch="UNext"
 exp_name="Dataset073_GE_LE"
 lr=0.0001
-epochs=500
+epochs=400
 input_w=512
 input_h=512
 b=8
+fold=0
 
 if [[ $train -eq 1 ]]; then
     python train.py \
@@ -26,7 +27,8 @@ if [[ $train -eq 1 ]]; then
         --epochs $epochs \
         --input_w $input_w \
         --input_h $input_h \
-        --b $b
+        --b $b \
+        --fold $fold
 fi
 
 if [[ $eval -eq 1 ]]; then

@@ -270,7 +270,6 @@ def main():
         split=config['split'],
         fold=config['fold'],
         split_type='train',
-        num_classes=config['num_classes'],
         transform=train_transform)
     
     val_dataset = nnUNetDataset(
@@ -278,7 +277,6 @@ def main():
         split=config['split'],
         fold=config['fold'],
         split_type='val',
-        num_classes=config['num_classes'],
         transform=val_transform)
 
     train_loader = torch.utils.data.DataLoader(

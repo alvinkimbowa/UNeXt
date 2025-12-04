@@ -95,7 +95,7 @@ class nnUNetDataset(torch.utils.data.Dataset):
                 img_ids.extend(split_dict[split_type])
             img_ids = list(set(img_ids))
         else:
-            img_ids = splits[fold][split_type]
+            img_ids = splits[int(fold)][split_type]
         
         self.img_ids = img_ids
         self.img_dir = os.path.join(f'{nnunet_raw}/{dataset_name}/images{split}')

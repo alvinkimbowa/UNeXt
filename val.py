@@ -3,6 +3,7 @@ import os
 from glob import glob
 
 import cv2
+import csv
 import torch
 import torch.backends.cudnn as cudnn
 import yaml
@@ -14,35 +15,49 @@ from tqdm import tqdm
 import archs
 from dataset import nnUNetDataset
 from metrics import iou_score
-from utils import AverageMeter
+from utils import AverageMeter, str2bool
 from albumentations import RandomRotate90,Resize
 import time
 from archs import UNext
-
+import numpy as np
+from scipy.ndimage import label
+from monai.metrics import DiceMetric, HausdorffDistanceMetric, SurfaceDistanceMetric
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--name', default=None,
+    parser.add_argument('--name', required=True,
                         help='model name')
     parser.add_argument('--train_dataset', default='Dataset073_GE_LE',
                         help='train dataset name')
-    parser.add_argument('--train_fold', type=int, required=True,
+    parser.add_argument('--train_fold', type=str, required=True,
                         help='train fold index (0-4) or "all" to combine all folds')
     parser.add_argument('--test_dataset', type=str, required=True,
                         help='test dataset name')
     parser.add_argument('--test_split', type=str, required=True,
                         help='test split (Ts or Te)')
-
+    parser.add_argument('--save_preds', type=str2bool, default=False,
+                        help='save predictions (True or False)')
     args = parser.parse_args()
 
     return args
+
+def find_largest_component_per_class(segmentation, num_classes):
+    output = np.zeros_like(segmentation)
+    for cls in range(1, num_classes):  # skip background class 0
+        binary_mask = (segmentation == cls).astype(np.uint8)
+        labeled_array, num_features = label(binary_mask)
+        if num_features == 0:
+            continue
+        largest_label = max(range(1, num_features + 1), key=lambda x: np.sum(labeled_array == x))
+        output[labeled_array == largest_label] = cls
+    return output
 
 
 def main():
     args = parse_args()
 
-    model_dir = f"models/{args.train_dataset}/fold_{args.train_fold}"
+    model_dir = f"models/{args.train_dataset}/{args.name}/fold_{args.train_fold}"
     with open(f'{model_dir}/config.yml', 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -95,34 +110,83 @@ def main():
     gput = AverageMeter()
     cput = AverageMeter()
 
-    save_dir = os.path.join(model_dir, 'test', args.test_dataset, 'preds')
-    os.makedirs(save_dir, exist_ok=True)
+    dice_metric = DiceMetric(include_background=False, reduction="mean")
+    hd95_metric = HausdorffDistanceMetric(include_background=False, reduction="mean", percentile=95)
+    surface_dice_metric = SurfaceDistanceMetric(include_background=False, reduction="mean")
+
+    if args.save_preds:
+        save_dir = os.path.join(model_dir, 'test', args.test_dataset, 'preds')
+        os.makedirs(save_dir, exist_ok=True)
     with torch.no_grad():
         for input, target, meta in tqdm(val_loader, total=len(val_loader)):
             input = input.cuda()
-            target = target.cuda()
             model = model.cuda()
             # compute output
-            output = model(input)
+            output = model(input).cpu()
 
 
             iou,dice = iou_score(output, target)
             iou_avg_meter.update(iou, input.size(0))
             dice_avg_meter.update(dice, input.size(0))
 
-            output = torch.sigmoid(output).cpu().numpy()
+            output = torch.sigmoid(output)
             output[output>=0.5]=1
             output[output<0.5]=0
 
-            for i in range(len(output)):
-                for c in range(config['num_classes']):
-                    cv2.imwrite(os.path.join(save_dir, meta['img_id'][i] + '.png'),
-                            (output[i, c] * 255).astype('uint8'))
+            dice_metric(output, target)
+            hd95_metric(output, target)
+            surface_dice_metric(output, target)
 
-    print('IoU: %.4f' % iou_avg_meter.avg)
-    print('Dice: %.4f' % dice_avg_meter.avg)
+            output = output.numpy()
+
+            if args.save_preds:
+                for i in range(len(output)):
+                    for c in range(config['num_classes']):
+                        cv2.imwrite(os.path.join(save_dir, meta['img_id'][i] + '.png'),
+                                (output[i, c] * 255).astype('uint8'))
 
     torch.cuda.empty_cache()
+    
+    # Calculate metrics
+    dice_score = dice_metric.aggregate().item() * 100
+    dice_std = dice_metric.get_buffer().std().item() * 100
+    hd95_score = hd95_metric.aggregate().item()
+    hd95_std = hd95_metric.get_buffer().std().item()
+    masd_score = surface_dice_metric.aggregate().item()
+    masd_std = surface_dice_metric.get_buffer().std().item()
+
+    # Print metrics
+    print("\n")
+    print(f"Dice: {dice_score:.2f}% ± {dice_std:.2f}%")
+    print(f"HD95: {hd95_score:.2f} ± {hd95_std:.2f}")
+    print(f"MASD: {masd_score:.2f} ± {masd_std:.2f}")
+
+    # Save to CSV
+    results_csv_path = os.path.join(model_dir, 'test', 'results_largest_component.csv')
+    os.makedirs(os.path.dirname(results_csv_path), exist_ok=True)
+    csv_exists = os.path.exists(results_csv_path)
+    with open(results_csv_path, 'a', newline='') as csvfile:
+        fieldnames = ['test_dataset_name', 'dice', 'dice_std', 'hd95', 'hd95_std', 'masd', 'masd_std']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        
+        # Write header if file doesn't exist
+        if not csv_exists:
+            writer.writeheader()
+        
+        # Write results
+        writer.writerow({
+            'test_dataset_name': args.test_dataset,
+            'dice': f"{dice_score:.2f}",
+            'dice_std': f"{dice_std:.2f}",
+            'hd95': f"{hd95_score:.2f}",
+            'hd95_std': f"{hd95_std:.2f}",
+            'masd': f"{masd_score:.2f}",
+            'masd_std': f"{masd_std:.2f}"
+        })
+    
+    print(f"Results saved to: {results_csv_path}\n")
+
+
 
 
 if __name__ == '__main__':

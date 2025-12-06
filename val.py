@@ -91,6 +91,7 @@ def main():
         assert args.train_fold != 'all', "TODO: Implement validation for all folds"
         val_dataset = nnUNetDataset(
             dataset_name=args.test_dataset,
+            input_channels=config['input_channels'],
             split=args.test_split,
             fold=args.train_fold,
             split_type='val',
@@ -99,6 +100,7 @@ def main():
     else:
         val_dataset = nnUNetDataset(
             dataset_name=args.test_dataset,
+            input_channels=config['input_channels'],
             split=args.test_split,
             transform=val_transform,
             eval=True)

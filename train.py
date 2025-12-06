@@ -335,6 +335,7 @@ def main():
 
     train_dataset = nnUNetDataset(
         dataset_name=config['dataset'],
+        input_channels=config['input_channels'],
         split=config['split'],
         fold=config['fold'],
         split_type='train',
@@ -342,6 +343,7 @@ def main():
     
     val_dataset = nnUNetDataset(
         dataset_name=config['dataset'],
+        input_channels=config['input_channels'],
         split=config['split'],
         fold=config['fold'],
         split_type='val',

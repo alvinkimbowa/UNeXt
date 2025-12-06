@@ -22,6 +22,9 @@ from archs import UNext
 import numpy as np
 from monai.metrics import DiceMetric, HausdorffDistanceMetric, SurfaceDistanceMetric
 from TinyUNet import TinyUNet
+import monounet.MonogenicNets
+
+MONO_ARCH_NAMES = monounet.MonogenicNets.__all__
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -64,7 +67,14 @@ def main():
     elif config['arch'] == "TinyUNet":
         model = TinyUNet(config['input_channels'],
                          config['num_classes'])
-
+    elif config['arch'] in MONO_ARCH_NAMES:
+        model = monounet.MonogenicNets.__dict__[config['arch']](config['input_channels'],
+                                                                config['num_classes'],
+                                                                img_size=(config['input_h'], config['input_w']),
+                                                                deep_supervision=config['deep_supervision'])
+    else:
+        raise NotImplementedError
+    
     model = model.cuda()
 
     model.load_state_dict(torch.load(os.path.join(model_dir, 'model.pth')))

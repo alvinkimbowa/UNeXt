@@ -22,11 +22,12 @@ from metrics import iou_score
 from utils import AverageMeter, str2bool
 from archs import UNext
 from TinyUNet import TinyUNet
+import monounet.MonogenicNets
 
 ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
-
+MONO_ARCH_NAMES = monounet.MonogenicNets.__all__
 
 
 def parse_args():
@@ -72,9 +73,9 @@ def parse_args():
 
     # optimizer
     parser.add_argument('--optimizer', default='Adam',
-                        choices=['Adam', 'SGD'],
+                        choices=['Adam', 'SGD', 'AdamW'],
                         help='loss: ' +
-                        ' | '.join(['Adam', 'SGD']) +
+                        ' | '.join(['Adam', 'SGD', 'AdamW']) +
                         ' (default: Adam)')
     parser.add_argument('--lr', '--learning_rate', default=1e-3, type=float,
                         metavar='LR', help='initial learning rate')
@@ -87,7 +88,7 @@ def parse_args():
 
     # scheduler
     parser.add_argument('--scheduler', default='CosineAnnealingLR',
-                        choices=['CosineAnnealingLR', 'ReduceLROnPlateau', 'MultiStepLR', 'ConstantLR'])
+                        choices=['CosineAnnealingLR', 'ReduceLROnPlateau', 'MultiStepLR', 'ConstantLR', 'PolyLR'])
     parser.add_argument('--min_lr', default=1e-5, type=float,
                         help='minimum learning rate')
     parser.add_argument('--factor', default=0.1, type=float)
@@ -231,6 +232,11 @@ def main():
     elif config['arch'] == "TinyUNet":
         model = TinyUNet(config['input_channels'],
                          config['num_classes'])
+    elif config['arch'] in MONO_ARCH_NAMES:
+        model = monounet.MonogenicNets.__dict__[config['arch']](config['input_channels'],
+                                                                config['num_classes'],
+                                                                img_size=(config['input_h'], config['input_w']),
+                                                                deep_supervision=config['deep_supervision'])
     else:
         raise NotImplementedError
 
@@ -243,6 +249,8 @@ def main():
     elif config['optimizer'] == 'SGD':
         optimizer = optim.SGD(params, lr=config['lr'], momentum=config['momentum'],
                               nesterov=config['nesterov'], weight_decay=config['weight_decay'])
+    elif config['optimizer'] == 'AdamW':
+        optimizer = optim.AdamW(params, lr=config['lr'], weight_decay=config['weight_decay'])
     else:
         raise NotImplementedError
 
@@ -256,6 +264,8 @@ def main():
         scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[int(e) for e in config['milestones'].split(',')], gamma=config['gamma'])
     elif config['scheduler'] == 'ConstantLR':
         scheduler = None
+    elif config['scheduler'] == 'PolyLR':
+        scheduler = lr_scheduler.PolynomialLR(optimizer, total_iters=config['epochs'], power=config.get('power', 0.9))
     else:
         raise NotImplementedError
     
@@ -328,6 +338,8 @@ def main():
             scheduler.step()
         elif config['scheduler'] == 'ReduceLROnPlateau':
             scheduler.step(val_log['loss'])
+        elif config['scheduler'] == 'PolyLR':
+            scheduler.step()
 
         print('loss %.4f - iou %.4f - val_loss %.4f - val_iou %.4f'
               % (train_log['loss'], train_log['iou'], val_log['loss'], val_log['iou']))

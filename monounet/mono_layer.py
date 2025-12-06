@@ -1,0 +1,557 @@
+import torch
+import torch.nn as nn
+import numpy as np
+# import logging
+
+
+# # Debug logger that writes only to a local file and does not touch global logging config.
+# log = logging.getLogger("mono_debug")
+# if not log.handlers:
+#     fh = logging.FileHandler("mono_debug.log")
+#     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+#     log.addHandler(fh)
+#     log.setLevel(logging.INFO)
+#     log.propagate = False
+
+
+# def debug_log(*args):
+#     """Log and print debug info without altering global logging."""
+#     msg = " ".join(str(a) for a in args)
+#     log.info(msg)
+#     print(*args)
+
+
+class Mono2D(nn.Module):
+    # Adopted from:
+    # Copyright (c) 1996-2009 Peter Kovesi
+    # School of Computer Science & Software Engineering
+    # The University of Western Australia
+    # pk at csse uwa edu au
+    # http://www.csse.uwa.edu.au/
+    # 
+    # Permission is hereby  granted, free of charge, to any  person obtaining a copy
+    # of this software and associated  documentation files (the "Software"), to deal
+    # in the Software without restriction, subject to the following conditions:
+    # 
+    # The above copyright notice and this permission notice shall be included in all
+    # copies or substantial portions of the Software.
+    # 
+    # The software is provided "as is", without warranty of any kind.
+    #
+    #------------------------------------------------------------------------
+    #
+    # Modified by A. BELAID, 2013
+    #
+    # Description: This code implements a part of the paper:
+    # Ahror BELAID and Djamal BOUKERROUI. "A new generalised alpha scale 
+    # spaces quadrature filters." Pattern Recognition 47.10 (2014): 3209-3224.
+    #
+    # Ahror BELAID and Djamal BOUKERROUI. "Alpha scale space filters for 
+    # phase based edge detection in ultrasound images." ISBI (2014): 1247-1250.
+    #
+    # Copyright (c), Heudiasyc laboratory, Compiègne, France.
+    #
+    #------------------------------------------------------------------------
+
+    def __init__(
+        self, in_channels: int, nscale: int = 1, sigmaonf: list = None, wls: list = None,
+        return_phase: bool = True, return_phase_asym: bool = False, return_phase_sym: bool = False,
+        return_ori: bool = False, return_input: bool = False, norm: str = "std",
+        T: float = 0.0, cut_off: float = 0.5, g: int = 10, episilon: float = 0.0001,
+        min_wl: float = 3.0, max_wl: float = 128.0,
+        trainable: bool = True
+        ):
+        super(Mono2D, self).__init__()
+
+        # Hyperparameters - these can be tuned
+        self.in_channels = in_channels
+        self.return_phase = return_phase
+        self.return_phase_sym = return_phase_sym
+        self.return_phase_asym = return_phase_asym
+        self.return_input = return_input
+        self.return_ori = return_ori
+        self.trainable = trainable
+        self.norm = norm
+
+        assert nscale > 0
+        self.nscale = nscale
+
+        # Fixed parameters
+        # According to Nyquist theorem, the smallest wavelength should be 2 pixels to avoid aliasing.
+        # Pick 3 pixels to be totally certain.
+        self.min_wl = min_wl
+        # Heuristically, at least for knee cartilage, the max wavelength won't reach 128 pixels.
+        # This is a temporary fix that will be investigated in future work
+        self.max_wl = max_wl
+        
+        # Learned parameters
+        self.wls = nn.Parameter(self.initialize_wls(wls), requires_grad=self.trainable)
+        self.sigmaonf = nn.Parameter(self.initialize_sigmaonf(sigmaonf), requires_grad=self.trainable)
+        
+        # Parameters below are used to construct the largest possible low-pass filter
+        # that quickly falls to zero at the boundaries. Cut-off frequency (normalized)
+        # should be between 0 and 0.5 according to Nyquist theorem.
+        # The larger the value of g, the sharper the transition to zero.
+        self.cut_off = cut_off
+        self.g = g
+        self.T = nn.Parameter(torch.tensor(T), requires_grad=self.trainable)
+        # Set a small value used throughout the layer to avoid division by zero
+        self.episilon = episilon
+
+    def forward(self, x):
+        x = x.to(dtype=torch.float32)   # For stable FFT computation
+        B, C, rows, cols = x.size()
+        # Transform the input image to frequency domain
+        IM = torch.fft.fft2(x).to(self.get_device())
+        IM = IM.view(B, C, 1, rows, cols)   # Process each channel separately
+
+        # Get filters
+        H, lgf = self.get_filters(rows, cols)
+
+        # Bandpassed image in the frequency domain
+        IMF = IM * lgf
+
+        # Bandpassed image in the spatial domain
+        f = torch.fft.ifft2(IMF).real
+
+        # Bandpassed monogenic filtering, real part of h contains convolution result with h1, 
+        # imaginary part contains convolution result with h2
+        h = torch.fft.ifft2(IMF * H)
+        h1 = h.real
+        h2 = h.imag
+        h_Amp2 = h1 ** 2 + h2 ** 2          # Amplitude of the bandpassed monogenic signal
+        An = torch.sqrt(f ** 2 + h_Amp2)    # Magnitude of Energy (Amplitude)
+
+        # Compute the phase asymmetry (odd - even)
+        symmetry_energy = torch.abs(f) - torch.sqrt(h_Amp2)
+                
+        # Compute the phase asymmetry and phase symmetry
+        phase_sym = torch.sum(An * torch.clamp(symmetry_energy - self.T, min=0), dim=2) / (torch.sum(An, dim=2) + self.episilon)
+        phase_asym = torch.sum(torch.clamp(-symmetry_energy - self.T, min=0), dim=2) / (torch.sum(An, dim=2) + self.episilon)
+        
+        # Sum all responses across all scales
+        f = torch.sum(f, dim=2)
+        h1 = torch.sum(h1, dim=2)
+        h2 = torch.sum(h2, dim=2)
+        h_Amp2 = torch.sum(h_Amp2, dim=2)
+
+        # Orientation - this varies +/- pi
+        ori = torch.atan2(-h2,h1)
+        # ori = self.scale_max_min(ori) # Normalizing angles loses circularity
+
+        # Feature type - a phase angle +/- pi.
+        ft = torch.atan2(f, torch.sqrt(h1 ** 2 + h2 ** 2 + self.episilon))       # Add episilon for stable gradients
+        
+        out = []
+        if self.return_input:
+            out.append(x)
+        if self.return_phase:
+            out.append(ft)
+        if self.return_ori:
+            out.append(ori)
+        if self.return_phase_sym:
+            out.append(phase_sym)
+        if self.return_phase_asym:
+            out.append(phase_asym)
+
+        out = torch.cat([o.reshape(B, -1, o.shape[-2], o.shape[-1]) for o in out], dim=1)
+        
+        if self.norm == "std":
+            out = self.std_normalize(out)
+        elif self.norm == "min_max":
+            out = self.min_max_normalize(out)
+        elif self.norm is None:
+            pass
+        else:
+            raise ValueError(f"Invalid normalization method: {self.norm}")
+        return out
+
+    def get_filters(self, rows, cols):
+        u1, u2, radius = self.mesh_range((rows, cols))
+        # Get rid of the 0 radius value in the middle (at top left corner after
+        # fftshifting) so that taking the log of the radius, or dividing by the
+        # radius, will not cause trouble.
+        radius[0,0] = 1.
+
+        # Construct the monogenic filters in the frequency domain.  The two
+        # filters would normally be constructed as follows
+        #    H1 = i*u1./radius; 
+        #    H2 = i*u2./radius;
+        # However the two filters can be packed together as a complex valued
+        # matrix, one in the real part and one in the imaginary part.
+        # When the convolution is performed via the fft the real part of the result
+        # will correspond to the convolution with H1 and the imaginary part with H2.
+        H = (1j*u1 - u2) / radius
+
+        # Construct a low-pass filter that is as large as possible, yet falls
+        # away to zero at the boundaries.  All filters are multiplied by
+        # this to ensure no extra frequencies at the 'corners' of the FFT are
+        # incorporated as this can upset the normalisation process when
+        # calculating phase symmetry
+        lp = self.lowpassfilter([rows, cols], self.cut_off, self.g)
+        
+        # Compute the log-Gabor filter
+        lgf = self.compute_logGabor(radius)
+        # Apply low-pass filter
+        lgf = lgf * lp
+        # Set the value at the 0 frequency point of the filter back to zero (undo the radius fudge).
+        lgf[..., 0, 0] = 0
+
+        return H, lgf
+
+            
+    def compute_logGabor(self, radius):
+        # Obtain the different scales wavelengths
+        wls = self.get_wls()
+        # Obtain the center frequencies
+        fo = 1.0 / wls
+        # Reshape fo to be broadcastable with radius
+        fo = fo.view(self.in_channels, self.nscale, 1, 1)
+        # The parameter sigmaonf is in the range -inf to inf. Rescale it to 0-1
+        sigmaonf = torch.nn.functional.sigmoid(self.sigmaonf)
+        # Construct the filter
+        filter = torch.exp((-(torch.log(radius/fo)) ** 2) / (2 * torch.log(sigmaonf) ** 2))
+        return filter.to(self.get_device())
+
+
+    def lowpassfilter(self, sze, cutoff, n):
+        # LOWPASSFILTER - Constructs a low-pass butterworth filter.
+
+        # usage: f = lowpassfilter(sze, cutoff, n)
+
+        # where: sze    is a two element vector specifying the size of filter 
+        #             to construct [rows cols].
+        #     cutoff is the cutoff frequency of the filter 0 - 0.5
+        #     n      is the order of the filter, the higher n is the sharper
+        #             the transition is. (n must be an integer >= 1).
+        #             Note that n is doubled so that it is always an even integer.
+
+        #                     1
+        #     f =    --------------------
+        #                             2n
+        #             1.0 + (w/cutoff)
+
+        # The frequency origin of the returned filter is at the corners.
+
+        # See also: HIGHPASSFILTER, HIGHBOOSTFILTER, BANDPASSFILTER
+
+
+        # Copyright (c) 1999 Peter Kovesi
+        # School of Computer Science & Software Engineering
+        # The University of Western Australia
+        # http://www.csse.uwa.edu.au/
+
+        # Permission is hereby granted, free of charge, to any person obtaining a copy
+        # of this software and associated documentation files (the "Software"), to deal
+        # in the Software without restriction, subject to the following conditions:
+
+        # The above copyright notice and this permission notice shall be included in 
+        # all copies or substantial portions of the Software.
+
+        # The Software is provided "as is", without warranty of any kind.
+
+        # October 1999
+        # August  2005 - Fixed up frequency ranges for odd and even sized filters
+        #             (previous code was a bit approximate)
+        if cutoff < 0 or cutoff > 0.5:
+            raise('cutoff frequency must be between 0 and 0.5')
+            
+        if n % 1 != 0 or n < 1:
+            raise('n must be an integer >= 1')
+        
+        if len(sze) == 1:
+            sze = (sze, sze)
+        else:
+            rows = sze[0]
+            cols = sze[1]
+
+        _, _, radius = self.mesh_range((rows, cols))
+        # Compute the filter
+        f = ( 1.0 / (1.0 + (radius / cutoff) ** (2*n)) )
+
+        return f
+    
+
+    def mesh_range(self, size):
+        rows, cols = size
+        # Set up u1 and u2 matrices with ranges normalized to +/- 0.5
+        # The following code adjusts things appropriately for odd and even values of rows and columns.
+        if cols % 2:
+            xrange = torch.arange(-(cols - 1) / 2, (cols) / 2) / (cols - 1)
+        else:
+            xrange = torch.arange(-cols / 2, cols/2) / cols
+        
+        if rows % 2:
+            yrange = torch.arange(-(rows - 1) / 2, (rows) / 2) / (rows - 1)
+        else:
+            yrange = torch.arange(-rows / 2, rows/2) / rows
+
+        # print("xrange: ", xrange.shape, "yrange: ", yrange.shape)
+        
+        # print("xrange: ", xrange)
+        # # print("yrange: ", yrange)
+
+        u1, u2 = torch.meshgrid(xrange, yrange, indexing='xy')
+
+        # Quadrant shift to put 0 frequency at the corners
+        u1 = torch.fft.ifftshift(u1).to(self.get_device())
+        u2 = torch.fft.ifftshift(u2).to(self.get_device())
+
+        # print("\n")
+        # print("u1: ", u1)
+        # print("u2: ", u2)
+
+        # Matrix values contain frequency values as a radius from center (but quandrant shifted)
+        radius = torch.sqrt(u1**2 + u2**2).to(self.get_device())
+
+        return u1, u2, radius
+    
+
+    def initialize_sigmaonf(self, sigmaonf):
+        if sigmaonf is None:
+            # Choose a random value very close to zero (akin to choosing a sigmaonf very close to 0.5)
+            return torch.randn(1) * 0.05
+        else:
+            assert sigmaonf > 0 and sigmaonf < 1
+            # Transform sigmaonf to between -inf and inf by applying the inverse sigmoid function
+            sigmaonf = torch.tensor(sigmaonf)
+            return torch.log(sigmaonf / (1 - sigmaonf))
+    
+    def initialize_wls(self, wls):
+        if wls is None:
+            return torch.randn(self.in_channels, self.nscale)
+        else:
+            wls = np.asarray(wls)  # Convert to numpy array for comparison
+            assert np.all(wls > 0)  # Cannot have a negative wavelength
+            # Rescale the wavelengths to be between 0 and 1 for faster training
+            wls = torch.tensor((wls - self.min_wl) / (self.max_wl - self.min_wl))
+            return torch.log(wls / (1 - wls))
+
+    def rescale_wls(self, wls):
+        return self.min_wl + wls * (self.max_wl - self.min_wl)
+    
+    def get_wls(self):
+        return self.rescale_wls(torch.nn.functional.sigmoid(self.wls))
+    
+    def get_sigmaonf(self):
+        return torch.nn.functional.sigmoid(self.sigmaonf)
+
+    def get_device(self):
+        return self.parameters().__next__().device
+    
+    def min_max_normalize(self, x):
+        x_min = torch.amin(x, dim=(-2, -1), keepdim=True)
+        x_max = torch.amax(x, dim=(-2, -1), keepdim=True)
+        return (x - x_min) / (x_max - x_min)
+    
+    def std_normalize(self, x):
+        x_mean = x.mean(dim=(-2, -1), keepdim=True)
+        x_std = x.std(dim=(-2, -1), keepdim=True)
+        return (x - x_mean) / (x_std + self.episilon)
+    
+    def get_params(self):
+        # return a dictionary of the parameters
+        return {
+            "nscale": self.nscale,
+            "wls": self.get_wls().tolist(),
+            "sigmaonf": self.get_sigmaonf().item(),
+            "return_phase": self.return_phase,
+            "return_ori": self.return_ori,
+            "return_phase_sym": self.return_phase_sym,
+            "return_phase_asym": self.return_phase_asym,
+            "return_input": self.return_input,
+            "cut_off": self.cut_off,
+            "g": self.g,
+            "T": self.T.item(),
+            "min_wl": self.min_wl,
+            "max_wl": self.max_wl,
+            "episilon": self.episilon,
+            "norm": self.norm,
+            "trainable": self.wls.requires_grad,
+        }
+    
+    def extra_repr(self) -> str:
+        return (
+            f"in_channels={self.in_channels}, "
+            f"out_channels={self.in_channels}, "
+            f"nscale={self.nscale}, "
+            f"norm={self.norm}, "
+            f"return_input={self.return_input}, "
+            f"return_phase={self.return_phase}, "
+            f"return_ori={self.return_ori}, "
+            f"return_phase_sym={self.return_phase_sym}, "
+            f"return_phase_asym={self.return_phase_asym}"
+            f"trainable={self.trainable}"
+        )
+
+
+class Mono2DV2(Mono2D):
+    def __init__(self, in_channels: int = 1, **kwargs):
+        self.in_channels = in_channels
+        super().__init__(**kwargs)
+
+        self.out_channels = ((
+            int(self.return_input)
+            + int(self.return_phase)
+            + int(self.return_ori)
+            + int(self.return_phase_sym)
+            + int(self.return_phase_asym)
+        ) * self.nscale * self.in_channels).item()
+
+    def forward(self, x):
+        x = x.to(dtype=torch.float32)
+        B, C, rows, cols = x.size()
+        # Transform the input image to frequency domain
+        IM = torch.fft.fft2(x, dim=(-2, -1), norm="ortho").to(self.get_device())    # FLOPS = 5 × H × W × log₂(H × W)
+        # debug_log("mono fft2: IM real: ", IM.shape, IM.real.min().item(), IM.real.max().item())
+        # debug_log("mono fft2: IM imag: ", IM.shape, IM.imag.min().item(), IM.imag.max().item())
+
+        # Get filters
+        H, lgf = self.get_filters(rows, cols)
+        # debug_log("mono lgf: ",torch.isnan(lgf).any(), torch.isinf(lgf).any(), lgf.min().item(), lgf.max().item())
+
+        # Bandpassed image in the frequency domain
+        IMF = IM.view(B, C, 1, rows, cols) * lgf            # FLOPS = nscale × 6 × H × W => (a+ib) * (c+id) = (ac-bd) + i(ad+bc)
+        # debug_log("mono bandpassed image: IMF real: ", IMF.shape, IMF.real.min().item(), IMF.real.max().item())
+        # debug_log("mono bandpassed image: IMF imag: ", IMF.shape, IMF.imag.min().item(), IMF.imag.max().item())
+
+        # Bandpassed image in the spatial domain
+        f = torch.fft.ifft2(IMF, dim=(-2, -1)).real           # FLOPS = 5 × H × W × log₂(H × W)
+        # debug_log("mono ifft2: f: ", f.shape, f.min().item(), f.max().item())
+
+        # Bandpassed monogenic filtering, real part of h contains convolution result with h1, 
+        # imaginary part contains convolution result with h2
+        h = torch.fft.ifft2(IMF * H, dim=(-2, -1))            # FLOPS = [5 × H × W × log₂(H × W)] + [6 × H × W]
+        h1 = h.real
+        h2 = h.imag
+        h_Amp2 = h1 ** 2 + h2 ** 2          # Amplitude of the bandpassed monogenic signal
+        An = torch.sqrt(f ** 2 + h_Amp2)    # Magnitude of Energy (Amplitude)
+        
+        # Compute the phase asymmetry (odd - even)
+        symmetry_energy = torch.abs(f) - torch.sqrt(h_Amp2)
+
+        # Compute the phase asymmetry and phase symmetry
+        phase_sym = (An * torch.clamp(symmetry_energy - self.T, min=0)) / (An + self.episilon)
+        phase_asym = (torch.clamp(-symmetry_energy - self.T, min=0)) / (An + self.episilon)
+        # debug_log("mono phase_sym: ", phase_sym.shape, phase_sym.min().item(), phase_sym.max().item())
+        # debug_log("mono phase_asym: ", phase_asym.shape, phase_asym.min().item(), phase_asym.max().item())
+
+        # # Orientation - this varies +/- pi
+        ori = torch.atan2(-h2,h1)
+        # debug_log("mono ori: ", ori.shape, ori.min().item(), ori.max().item())
+
+        # Feature type - a phase angle +/- pi.
+        # debug_log("mono h1: ", h1.shape, h1.min().item(), h1.max().item())
+        # debug_log("mono h2: ", h2.shape, h2.min().item(), h2.max().item())
+        ft = torch.atan2(f, torch.sqrt(h1 ** 2 + h2 ** 2 + self.episilon))       # Add episilon for stable gradients            # FLOPS = 1 × H × W
+        # debug_log("mono ft: ", ft.shape, ft.min().item(), ft.max().item())
+        
+        out = []
+        if self.return_input:
+            out.append(x)
+        if self.return_phase:
+            out.append(ft)
+        if self.return_ori:
+            out.append(ori)
+        if self.return_phase_sym:
+            out.append(phase_sym)
+        if self.return_phase_asym:
+            out.append(phase_asym)
+
+        # Concatenate along the channel dimension: (B x [features] x nscale x H x W) -> (B x (features*nscale) x H x W)
+        out = torch.cat([o.reshape(B, -1, o.shape[-2], o.shape[-1]) for o in out], dim=1)
+        # debug_log("mono concatenated out: ", out.shape, out.min().item(), out.max().item())
+        # out = torch.stack(out, dim=1)
+        if self.norm == "std":
+            out = self.std_normalize(out)
+        elif self.norm == "min_max":
+            out = self.min_max_normalize(out)
+        elif self.norm is None:
+            pass
+        else:
+            raise ValueError(f"Invalid normalization method: {self.norm}")
+        
+        # debug_log("mono output: out: ", out.shape, out.min().item(), out.max().item())
+        return out
+
+    def compute_logGabor(self, radius):
+        # Obtain the different scales wavelengths
+        # debug_log("wls before rescaling: ", self.wls.shape, self.wls.min().item(), self.wls.max().item(), torch.isnan(self.wls).any(), torch.isinf(self.wls).any())
+        wls = self.get_wls()
+        # debug_log("wls after rescaling: ", wls.shape, wls.min().item(), wls.max().item(), torch.isnan(wls).any(), torch.isinf(wls).any())
+        # Obtain the center frequencies
+        fo = 1.0 / wls
+        # debug_log("mono fo: ", fo.shape, fo.min().item(), fo.max().item(), torch.isnan(fo).any(), torch.isinf(fo).any())
+        # Reshape fo to be broadcastable with radius
+        fo = fo.view(self.in_channels, self.nscale, 1, 1)
+        
+        # The parameter sigmaonf is in the range -inf to inf. Rescale it to 0-1
+        sigmaonf = torch.sigmoid(self.sigmaonf).view(self.in_channels, self.nscale, 1, 1)
+        
+        # debug_log("mono sigmaonf: ", sigmaonf.shape, sigmaonf.min().item(), sigmaonf.max().item(), torch.isnan(sigmaonf).any(), torch.isinf(sigmaonf).any())
+        # Construct the filter
+        ratio = radius / fo  # or add +1e-8 before log
+        # debug_log("mono ratio: ", ratio.shape, ratio.min().item(), ratio.max().item(), torch.isnan(ratio).any(), torch.isinf(ratio).any())
+
+        numerator = -(torch.log(ratio)) ** 2
+        # debug_log("mono numerator: ", numerator.shape, numerator.min().item(), numerator.max().item(), torch.isnan(numerator).any(), torch.isinf(numerator).any())
+        denominator = 2 * torch.log(sigmaonf) ** 2
+        # debug_log("mono denominator: ", denominator.shape, denominator.min().item(), denominator.max().item(), torch.isnan(denominator).any(), torch.isinf(denominator).any())
+        filter = torch.exp(numerator / denominator)
+        # debug_log("mono filter: ", filter.shape, filter.min().item(), filter.max().item(), torch.isnan(filter).any(), torch.isinf(filter).any())
+        # denom = (torch.log(sigmaonf) ** 2) + 1e-12
+        # filter = torch.exp(-(torch.log(ratio) ** 2) / (2 * denom))
+
+        # filter = torch.exp((-(torch.log(radius/fo)) ** 2) / (2 * torch.log(sigmaonf) ** 2))
+        return filter.to(self.get_device())
+    
+    def initialize_sigmaonf(self, sigmaonf):
+        nscale = int(self.nscale.item())
+        if sigmaonf is None:
+            # Choose random values very close to zero (akin to choosing sigmaonf ~ 0.5)
+            return torch.randn(self.in_channels, nscale) * 0.05
+        else:
+            sigmaonf = torch.as_tensor(sigmaonf, dtype=torch.float32)
+            if sigmaonf.ndim == 0:
+                sigmaonf = sigmaonf.repeat(self.in_channels, nscale)
+            else:
+                assert sigmaonf.numel() == self.in_channels * nscale
+            valid = torch.all((sigmaonf > 0) & (sigmaonf < 1))
+            assert bool(valid)
+            # Transform sigmaonf to between -inf and inf by applying the inverse sigmoid function
+            return torch.log(sigmaonf / (1 - sigmaonf))
+    
+    def initialize_wls(self, wls):
+        if wls is None:
+            return torch.randn(self.in_channels, int(self.nscale.item()))
+        else:
+            wls = np.asarray(wls)  # Convert to numpy array for comparison
+            assert np.all(wls > 0)  # Cannot have a negative wavelength
+            # Rescale the wavelengths to be between 0 and 1 for faster training
+            wls = torch.tensor((wls - self.min_wl) / (self.max_wl - self.min_wl))
+            return torch.log(wls / (1 - wls))
+    
+    def get_params(self):
+        # return a dictionary of the parameters
+        return {
+            "in_channels": self.in_channels,
+            "nscale": self.nscale.item(),
+            "wls": self.get_wls().tolist(),
+            "sigmaonf": self.get_sigmaonf().tolist(),
+            "return_phase": self.return_phase,
+            "return_ori": self.return_ori,
+            "return_phase_sym": self.return_phase_sym,
+            "return_phase_asym": self.return_phase_asym,
+            "return_input": self.return_input,
+            "cut_off": self.cut_off,
+            "g": self.g,
+            "T": self.T.item(),
+            "min_wl": self.min_wl,
+            "max_wl": self.max_wl,
+            "episilon": self.episilon,
+            "norm": self.norm,
+            "trainable": self.wls.requires_grad,
+        }
+
+    def extra_repr(self) -> str:
+        return f"in_channels={self.in_channels}, out_channels={self.out_channels}, " + super().extra_repr()

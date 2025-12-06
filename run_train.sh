@@ -17,23 +17,36 @@ b=8
 fold=4
 save_preds=true
 
-if [[ $arch == "UNext" || $arch == "UNext_S" ]]; then
-    min_lr=1e-5
-    loss="BCEDiceLoss"
-    input_w=512
-    input_h=512
-else
+if [[ $arch == "TinyUNet" ]]; then
     min_lr=1e-6
     loss="TinyUNetLoss"
     input_h=256
     input_w=256
+else
+    min_lr=1e-5
+    loss="BCEDiceLoss"
+    input_w=512
+    input_h=512
 fi
 
+if [[ $fold -eq 5 ]]; then
+    fold="all"
+fi
+
+echo "fold: $fold"
+echo "train: $train"
+echo "eval: $eval"
+echo "dataset_name: $dataset_name"
 echo "arch: $arch"
+echo "exp_name: $exp_name"
+echo "lr: $lr"
+echo "epochs: $epochs"
+echo "input_w: $input_w"
+echo "input_h: $input_h"
+echo "b: $b"
 
 # Evaluation settings
 test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
-test_split="Tr"
 
 if [[ $train -eq 1 ]]; then
     python train.py \

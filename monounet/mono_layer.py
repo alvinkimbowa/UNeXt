@@ -396,7 +396,7 @@ class Mono2DV2(Mono2D):
             + int(self.return_ori)
             + int(self.return_phase_sym)
             + int(self.return_phase_asym)
-        ) * self.nscale * self.in_channels).item()
+        ) * self.nscale * self.in_channels)
 
     def forward(self, x):
         x = x.to(dtype=torch.float32)
@@ -506,16 +506,15 @@ class Mono2DV2(Mono2D):
         return filter.to(self.get_device())
     
     def initialize_sigmaonf(self, sigmaonf):
-        nscale = int(self.nscale.item())
         if sigmaonf is None:
             # Choose random values very close to zero (akin to choosing sigmaonf ~ 0.5)
-            return torch.randn(self.in_channels, nscale) * 0.05
+            return torch.randn(self.in_channels, self.nscale) * 0.05
         else:
             sigmaonf = torch.as_tensor(sigmaonf, dtype=torch.float32)
             if sigmaonf.ndim == 0:
-                sigmaonf = sigmaonf.repeat(self.in_channels, nscale)
+                sigmaonf = sigmaonf.repeat(self.in_channels, self.nscale)
             else:
-                assert sigmaonf.numel() == self.in_channels * nscale
+                assert sigmaonf.numel() == self.in_channels * self.nscale
             valid = torch.all((sigmaonf > 0) & (sigmaonf < 1))
             assert bool(valid)
             # Transform sigmaonf to between -inf and inf by applying the inverse sigmoid function
@@ -523,7 +522,7 @@ class Mono2DV2(Mono2D):
     
     def initialize_wls(self, wls):
         if wls is None:
-            return torch.randn(self.in_channels, int(self.nscale.item()))
+            return torch.randn(self.in_channels, self.nscale)
         else:
             wls = np.asarray(wls)  # Convert to numpy array for comparison
             assert np.all(wls > 0)  # Cannot have a negative wavelength
@@ -535,7 +534,7 @@ class Mono2DV2(Mono2D):
         # return a dictionary of the parameters
         return {
             "in_channels": self.in_channels,
-            "nscale": self.nscale.item(),
+            "nscale": self.nscale,
             "wls": self.get_wls().tolist(),
             "sigmaonf": self.get_sigmaonf().tolist(),
             "return_phase": self.return_phase,

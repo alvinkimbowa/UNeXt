@@ -144,6 +144,8 @@ class XTinyMonoV2UNetScale1(XTinyMonoUNetScale1):
         self.encoder = XTinyEncoder(in_channels, filters, deep_supervision=deep_supervision)
         self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
 
+        self.initialize_weights()
+
 
 class XTinyMonoV2UNetScale6(XTinyMonoUNetScale1):
     def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
@@ -159,6 +161,7 @@ class XTinyMonoV2UNetScale6(XTinyMonoUNetScale1):
         self.encoder = XTinyEncoder(in_channels, filters, deep_supervision=deep_supervision)
         self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
 
+        self.initialize_weights()
 
 class XTinyMonoV2GatedUNet(XTinyUNet):
     def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):

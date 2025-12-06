@@ -14,7 +14,7 @@ arch="UNext"
 lr=0.0001
 epochs=400
 b=8
-fold=0
+input_channels=1
 
 # Evaluation settings
 save_preds=false
@@ -65,7 +65,7 @@ echo "epochs: $epochs"
 echo "input_w: $input_w"
 echo "input_h: $input_h"
 echo "b: $b"
-
+echo "input_channels: $input_channels"
 
 if [[ $train -eq 1 ]]; then
     python train.py \
@@ -81,7 +81,8 @@ if [[ $train -eq 1 ]]; then
         --loss $loss \
         --optimizer $optimizer \
         --scheduler $scheduler \
-        --weight_decay $weight_decay
+        --weight_decay $weight_decay \
+        --input_channels $input_channels
 fi
 
 if [[ $eval -eq 1 ]]; then

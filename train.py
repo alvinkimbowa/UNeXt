@@ -46,7 +46,7 @@ def parse_args():
     # model
     parser.add_argument('--arch', '-a', metavar='ARCH', default='UNext')
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
-    parser.add_argument('--input_channels', default=3, type=int,
+    parser.add_argument('--input_channels', default=1, type=int,
                         help='input channels')
     parser.add_argument('--num_classes', default=1, type=int,
                         help='number of classes')

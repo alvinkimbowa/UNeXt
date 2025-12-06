@@ -371,18 +371,24 @@ class Mono2D(nn.Module):
         }
     
     def extra_repr(self) -> str:
-        return (
-            f"in_channels={self.in_channels}, "
-            f"out_channels={self.in_channels}, "
-            f"nscale={self.nscale}, "
-            f"norm={self.norm}, "
-            f"return_input={self.return_input}, "
-            f"return_phase={self.return_phase}, "
-            f"return_ori={self.return_ori}, "
-            f"return_phase_sym={self.return_phase_sym}, "
-            f"return_phase_asym={self.return_phase_asym}, "
-            f"trainable={self.trainable}"
-        )
+        extras = [
+            f"in_channels={self.in_channels}",
+            f"out_channels={self.in_channels}",
+            f"nscale={self.nscale}",
+            f"norm={self.norm}",
+        ]
+        if self.return_input:
+            extras.append("return_input=True")
+        if self.return_phase:
+            extras.append("return_phase=True")
+        if self.return_ori:
+            extras.append("return_ori=True")
+        if self.return_phase_sym:
+            extras.append("return_phase_sym=True")
+        if self.return_phase_asym:
+            extras.append("return_phase_asym=True")
+        extras.append(f"trainable={self.trainable}")
+        return ", ".join(extras)
 
 
 class Mono2DV2(Mono2D):
@@ -532,16 +538,11 @@ class Mono2DV2(Mono2D):
     
     def get_params(self):
         # return a dictionary of the parameters
-        return {
+        params = {
             "in_channels": self.in_channels,
             "nscale": self.nscale,
             "wls": self.get_wls().tolist(),
             "sigmaonf": self.get_sigmaonf().tolist(),
-            "return_phase": self.return_phase,
-            "return_ori": self.return_ori,
-            "return_phase_sym": self.return_phase_sym,
-            "return_phase_asym": self.return_phase_asym,
-            "return_input": self.return_input,
             "cut_off": self.cut_off,
             "g": self.g,
             "T": self.T.item(),
@@ -551,6 +552,18 @@ class Mono2DV2(Mono2D):
             "norm": self.norm,
             "trainable": self.wls.requires_grad,
         }
+        # Only include return_* keys if their values are True
+        if self.return_phase:
+            params["return_phase"] = True
+        if self.return_ori:
+            params["return_ori"] = True
+        if self.return_phase_sym:
+            params["return_phase_sym"] = True
+        if self.return_phase_asym:
+            params["return_phase_asym"] = True
+        if self.return_input:
+            params["return_input"] = True
+        return params
 
     def extra_repr(self) -> str:
         return f"in_channels={self.in_channels}, out_channels={self.out_channels}, " + super().extra_repr()

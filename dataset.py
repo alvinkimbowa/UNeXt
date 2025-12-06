@@ -78,8 +78,9 @@ class Dataset(torch.utils.data.Dataset):
 
 
 class nnUNetDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset_name, split, fold=None, split_type='train', transform=None, eval=False):
+    def __init__(self, dataset_name, input_channels, split, fold=None, split_type='train', transform=None, eval=False):
         self.transform = transform
+        self.input_channels = input_channels
         
         nnunet_raw = os.environ['nnUNet_raw']
         nnunet_preprocessed = os.environ['nnUNet_preprocessed']
@@ -117,7 +118,11 @@ class nnUNetDataset(torch.utils.data.Dataset):
         img_filename = f'{self.img_dir}/{img_id}_0000{self.img_ext}'
         label_filename = f'{self.label_dir}/{img_id}{self.img_ext}'
         
-        img = cv2.imread(os.path.join(self.img_dir, img_filename))
+        if self.input_channels == 1:
+            img = cv2.imread(os.path.join(self.img_dir, img_filename), cv2.IMREAD_GRAYSCALE)
+        else:
+            img = cv2.imread(os.path.join(self.img_dir, img_filename))
+        
         mask = cv2.imread(os.path.join(self.label_dir, label_filename), cv2.IMREAD_GRAYSCALE)[..., None]
         
         if self.transform is not None:

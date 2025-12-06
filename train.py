@@ -3,6 +3,9 @@ import os
 from collections import OrderedDict
 from glob import glob
 
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 import torch.backends.cudnn as cudnn
@@ -105,10 +108,47 @@ def parse_args():
 
     return config
 
+def plot_training_curves(log_data, output_path):
+    """
+    Plot training curves with loss and dice metrics.
+    
+    Args:
+        log_data: Dictionary with keys 'epoch', 'loss', 'val_loss', 'dice', 'val_dice'
+        output_path: Path to save the plot
+    """
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+    
+    epochs = log_data['epoch']
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Loss', color='tab:blue')
+    line1 = ax1.plot(epochs, log_data['loss'], 'b-', label='Train Loss', alpha=0.7)
+    line2 = ax1.plot(epochs, log_data['val_loss'], 'b--', label='Val Loss', alpha=0.7)
+    ax1.tick_params(axis='y', labelcolor='tab:blue')
+    ax1.grid(True, axis='x', alpha=0.3)  # Vertical grid lines for epochs
+    
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Dice', color='tab:red')
+    line3 = ax2.plot(epochs, log_data['dice'], 'r-', label='Train Dice', alpha=0.7)
+    line4 = ax2.plot(epochs, log_data['val_dice'], 'r--', label='Val Dice', alpha=0.7)
+    ax2.tick_params(axis='y', labelcolor='tab:red')
+    ax2.grid(True, axis='y', alpha=0.3)  # Horizontal grid lines for dice
+    
+    # Combine legends
+    lines = line1 + line2 + line3 + line4
+    labels = [l.get_label() for l in lines]
+    ax1.legend(lines, labels, loc='upper left', bbox_to_anchor=(0, 1.12), ncols=2, frameon=False)
+    
+    plt.title('Training Curves')
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+
 # args = parser.parse_args()
 def train(config, train_loader, model, criterion, optimizer):
     avg_meters = {'loss': AverageMeter(),
-                  'iou': AverageMeter()}
+                  'iou': AverageMeter(),
+                  'dice': AverageMeter()}
 
     model.train()
 
@@ -137,6 +177,7 @@ def train(config, train_loader, model, criterion, optimizer):
 
         avg_meters['loss'].update(loss.item(), input.size(0))
         avg_meters['iou'].update(iou, input.size(0))
+        avg_meters['dice'].update(dice, input.size(0))
 
         postfix = OrderedDict([
             ('loss', avg_meters['loss'].avg),
@@ -147,7 +188,8 @@ def train(config, train_loader, model, criterion, optimizer):
     pbar.close()
 
     return OrderedDict([('loss', avg_meters['loss'].avg),
-                        ('iou', avg_meters['iou'].avg)])
+                        ('iou', avg_meters['iou'].avg),
+                        ('dice', avg_meters['dice'].avg)])
 
 
 def validate(config, val_loader, model, criterion):
@@ -319,6 +361,7 @@ def main():
         ('lr', []),
         ('loss', []),
         ('iou', []),
+        ('dice', []),
         ('val_loss', []),
         ('val_iou', []),
         ('val_dice', []),
@@ -341,18 +384,22 @@ def main():
         elif config['scheduler'] == 'PolyLR':
             scheduler.step()
 
-        print('loss %.4f - iou %.4f - val_loss %.4f - val_iou %.4f'
-              % (train_log['loss'], train_log['iou'], val_log['loss'], val_log['iou']))
+        print('loss %.4f - dice %.4f - val_loss %.4f - val_dice %.4f'
+              % (train_log['loss'], train_log['dice'], val_log['loss'], val_log['dice']))
 
         log['epoch'].append(epoch)
-        log['lr'].append(config['lr'])
+        log['lr'].append(optimizer.param_groups[0]['lr'])
         log['loss'].append(train_log['loss'])
         log['iou'].append(train_log['iou'])
+        log['dice'].append(train_log['dice'])
         log['val_loss'].append(val_log['loss'])
         log['val_iou'].append(val_log['iou'])
         log['val_dice'].append(val_log['dice'])
 
         pd.DataFrame(log).to_csv(f'{model_dir}/log.csv', index=False)
+        
+        # Plot training curves
+        plot_training_curves(log, f'{model_dir}/loss_curves.png')
 
         trigger += 1
 

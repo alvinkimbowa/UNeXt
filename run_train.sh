@@ -10,7 +10,26 @@ export NO_ALBUMENTATIONS_UPDATE=1
 train=1
 eval=0
 dataset_name="Dataset073_GE_LE"
-arch="UNext"
+# Exps 1: Semi-baseline: similar to Ulises (visual frontend)
+# arch="XTinyMonoUNetScale1"
+arch="XTinyMonoUNetScale6"
+# arch="XTinyMonoV2UNetScale1"
+# arch="XTinyMonoV2UNetScale6"
+# # Exps 2.1: Proposed: Rather than totally filtering the input, dynamically regulate the input signal using local phase info
+# arch="XTinyMonoUNetgated"    # at visual frontend only
+# # Exps 2.2: Use the same gating signal at other parts of the network. Downsample the signal to fit different resolutions.
+# arch="XTinyMonoUNetgatedenc"    # within the encoder
+# arch="XTinyMonoUNetgatedencdec"    # within the encoder and decoder
+# arch="XTinyMonoUNetgateddec"    # within the decoder
+# # Exps 2.3: Learn multi-scale gating signals - a separate layer for each stage that takes as input a downsampled version of the input image
+# arch="XTinyMonoUNetgatedencv1"    # within the encoder, using v1 mono layer
+# arch="XTinyMonoUNetgatedencdecv1"    # within the encoder and decoder, using v1 mono layer
+# arch="XTinyMonoUNetgateddecv1"    # within the decoder, using v1 mono layer
+# # Exps 2.4: Learn multi-scale gating signals - with a strided convolution to downsample the input image
+# arch="XTinyMonoUNetgatedencv2"    # within the encoder, using v2 mono layer
+# arch="XTinyMonoUNetgatedencdecv2"    # within the encoder and decoder, using v2 mono layer
+# arch="XTinyMonoUNetgateddecv2"    # within the decoder, using v2 mono layer
+
 lr=0.0001
 epochs=400
 b=8
@@ -29,7 +48,7 @@ if [[ $arch == "TinyUNet" ]]; then
     optimizer="Adam"
     scheduler="CosineAnnealingLR"
     weight_decay=1e-4
-elif [[ $arch == "XTinyUNet" ]]; then
+elif [[ $arch == XTiny* ]]; then
     lr=0.01
     weight_decay=0.01
     min_lr=1e-5

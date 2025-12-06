@@ -380,7 +380,7 @@ class Mono2D(nn.Module):
             f"return_phase={self.return_phase}, "
             f"return_ori={self.return_ori}, "
             f"return_phase_sym={self.return_phase_sym}, "
-            f"return_phase_asym={self.return_phase_asym}"
+            f"return_phase_asym={self.return_phase_asym}, "
             f"trainable={self.trainable}"
         )
 

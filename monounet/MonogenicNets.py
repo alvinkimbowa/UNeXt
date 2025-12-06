@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
 
-__all__ = ['XTinyUNet']
+from monounet.mono_layer import Mono2D, Mono2DV2
+
+__all__ = ['XTinyUNet', 'XTinyMonoUNetScale1', 'XTinyMonoUNetScale6', 'XTinyMonoV2UNetScale1', 'XTinyMonoV2UNetScale6']
+
 
 class XTinyUNet(nn.Module):
     def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
@@ -109,6 +112,52 @@ class XTinyDecoder(nn.Module):
             return outputs
         else:
             return outputs[-1]
+
+
+class XTinyMonoUNetScale1(XTinyUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        self.mono2d = Mono2D(in_channels, nscale=1, norm="std", return_phase=True)
+        
+    def forward(self, x):
+        x = self.mono2d(x)
+        return super().forward(x)
+
+
+class XTinyMonoUNetScale6(XTinyMonoUNetScale1):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        self.mono2d = Mono2D(in_channels, nscale=6, norm="std", return_phase=True)
+
+
+class XTinyMonoV2UNetScale1(XTinyMonoUNetScale1):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        print("in_channels", in_channels)
+        self.mono2d = Mono2DV2(in_channels, nscale=1, norm="std", return_phase=True)
+        in_channels = self.mono2d.out_channels
+        print("in_channels after Mono2DV2", in_channels)
+        
+        num_stages = 7 if max(img_size[0], img_size[1]) <= 256 else 8
+        filters = [min(max_filters, init_filters * 2**i) for i in range(num_stages)]
+        
+        self.encoder = XTinyEncoder(in_channels, filters, deep_supervision=deep_supervision)
+        self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
+
+
+class XTinyMonoV2UNetScale6(XTinyMonoUNetScale1):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        print("in_channels", in_channels)
+        self.mono2d = Mono2DV2(in_channels, nscale=6, norm="std", return_phase=True)
+        in_channels = self.mono2d.out_channels
+        print("in_channels after Mono2DV2", in_channels)
+        
+        num_stages = 7 if max(img_size[0], img_size[1]) <= 256 else 8
+        filters = [min(max_filters, init_filters * 2**i) for i in range(num_stages)]
+        
+        self.encoder = XTinyEncoder(in_channels, filters, deep_supervision=deep_supervision)
+        self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
 
 
 if __name__ == "__main__":

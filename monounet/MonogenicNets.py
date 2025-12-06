@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from monounet.mono_layer import Mono2D, Mono2DV2
 
-__all__ = ['XTinyUNet', 'XTinyMonoUNetScale1', 'XTinyMonoUNetScale6', 'XTinyMonoV2UNetScale1', 'XTinyMonoV2UNetScale6']
+__all__ = ['XTinyUNet', 'XTinyMonoUNetScale1', 'XTinyMonoUNetScale6', 'XTinyMonoV2UNetScale1', 'XTinyMonoV2UNetScale6', 'XTinyMonoV2GatedUNet']
 
 
 class XTinyUNet(nn.Module):
@@ -158,6 +158,24 @@ class XTinyMonoV2UNetScale6(XTinyMonoUNetScale1):
         
         self.encoder = XTinyEncoder(in_channels, filters, deep_supervision=deep_supervision)
         self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
+
+
+class XTinyMonoV2GatedUNet(XTinyUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        self.mono2d = Mono2DV2(in_channels, nscale=1, norm="std", return_phase=True)
+        
+        # Learnable affine for gate and residual strength
+        self.gate_weight = nn.Parameter(torch.ones(1))
+        self.gate_bias = nn.Parameter(torch.zeros(1))
+        self.alpha = nn.Parameter(torch.randn(1))
+        print("\n\nUsing MonoGatedUNet with mono2d layer\n\n")
+    
+    def forward(self, x):
+        mono_feat = self.mono2d(x)
+        gate = torch.sigmoid(self.gate_weight * mono_feat + self.gate_bias)
+        x = x * (1 + self.alpha * gate)     # Use a residual connection to stabilize training
+        return super().forward(x)
 
 
 if __name__ == "__main__":

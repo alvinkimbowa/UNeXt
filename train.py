@@ -311,7 +311,12 @@ def main():
     else:
         raise NotImplementedError
     
-    if config['arch'] == "TinyUNet" or config['arch'] == "XTinyUNet":
+    if config['arch'] == "TinyUNet":
+        train_transform = Compose([
+            Resize(config['input_h'], config['input_w']),
+            transforms.Normalize(),
+        ])
+    elif config['arch'] in MONO_ARCH_NAMES:
         train_transform = Compose([
             Resize(config['input_h'], config['input_w']),
             transforms.Normalize(),

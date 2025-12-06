@@ -388,7 +388,7 @@ class Mono2D(nn.Module):
 class Mono2DV2(Mono2D):
     def __init__(self, in_channels: int = 1, **kwargs):
         self.in_channels = in_channels
-        super().__init__(**kwargs)
+        super().__init__(in_channels, **kwargs)
 
         self.out_channels = ((
             int(self.return_input)

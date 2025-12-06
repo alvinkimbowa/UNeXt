@@ -311,7 +311,7 @@ def main():
     else:
         raise NotImplementedError
     
-    if config['arch'] == "TinyUNet":
+    if config['arch'] == "TinyUNet" or config['arch'] == "XTinyUNet":
         train_transform = Compose([
             Resize(config['input_h'], config['input_w']),
             transforms.Normalize(),

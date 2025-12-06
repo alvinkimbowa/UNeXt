@@ -1,24 +1,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-# import logging
-
-
-# # Debug logger that writes only to a local file and does not touch global logging config.
-# log = logging.getLogger("mono_debug")
-# if not log.handlers:
-#     fh = logging.FileHandler("mono_debug.log")
-#     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-#     log.addHandler(fh)
-#     log.setLevel(logging.INFO)
-#     log.propagate = False
-
-
-# def debug_log(*args):
-#     """Log and print debug info without altering global logging."""
-#     msg = " ".join(str(a) for a in args)
-#     log.info(msg)
-#     print(*args)
 
 
 class Mono2D(nn.Module):
@@ -409,21 +391,15 @@ class Mono2DV2(Mono2D):
         B, C, rows, cols = x.size()
         # Transform the input image to frequency domain
         IM = torch.fft.fft2(x, dim=(-2, -1), norm="ortho").to(self.get_device())    # FLOPS = 5 × H × W × log₂(H × W)
-        # debug_log("mono fft2: IM real: ", IM.shape, IM.real.min().item(), IM.real.max().item())
-        # debug_log("mono fft2: IM imag: ", IM.shape, IM.imag.min().item(), IM.imag.max().item())
 
         # Get filters
         H, lgf = self.get_filters(rows, cols)
-        # debug_log("mono lgf: ",torch.isnan(lgf).any(), torch.isinf(lgf).any(), lgf.min().item(), lgf.max().item())
 
         # Bandpassed image in the frequency domain
         IMF = IM.view(B, C, 1, rows, cols) * lgf            # FLOPS = nscale × 6 × H × W => (a+ib) * (c+id) = (ac-bd) + i(ad+bc)
-        # debug_log("mono bandpassed image: IMF real: ", IMF.shape, IMF.real.min().item(), IMF.real.max().item())
-        # debug_log("mono bandpassed image: IMF imag: ", IMF.shape, IMF.imag.min().item(), IMF.imag.max().item())
 
         # Bandpassed image in the spatial domain
         f = torch.fft.ifft2(IMF, dim=(-2, -1)).real           # FLOPS = 5 × H × W × log₂(H × W)
-        # debug_log("mono ifft2: f: ", f.shape, f.min().item(), f.max().item())
 
         # Bandpassed monogenic filtering, real part of h contains convolution result with h1, 
         # imaginary part contains convolution result with h2
@@ -439,18 +415,12 @@ class Mono2DV2(Mono2D):
         # Compute the phase asymmetry and phase symmetry
         phase_sym = (An * torch.clamp(symmetry_energy - self.T, min=0)) / (An + self.episilon)
         phase_asym = (torch.clamp(-symmetry_energy - self.T, min=0)) / (An + self.episilon)
-        # debug_log("mono phase_sym: ", phase_sym.shape, phase_sym.min().item(), phase_sym.max().item())
-        # debug_log("mono phase_asym: ", phase_asym.shape, phase_asym.min().item(), phase_asym.max().item())
 
         # # Orientation - this varies +/- pi
         ori = torch.atan2(-h2,h1)
-        # debug_log("mono ori: ", ori.shape, ori.min().item(), ori.max().item())
 
         # Feature type - a phase angle +/- pi.
-        # debug_log("mono h1: ", h1.shape, h1.min().item(), h1.max().item())
-        # debug_log("mono h2: ", h2.shape, h2.min().item(), h2.max().item())
         ft = torch.atan2(f, torch.sqrt(h1 ** 2 + h2 ** 2 + self.episilon))       # Add episilon for stable gradients            # FLOPS = 1 × H × W
-        # debug_log("mono ft: ", ft.shape, ft.min().item(), ft.max().item())
         
         out = []
         if self.return_input:
@@ -466,7 +436,6 @@ class Mono2DV2(Mono2D):
 
         # Concatenate along the channel dimension: (B x [features] x nscale x H x W) -> (B x (features*nscale) x H x W)
         out = torch.cat([o.reshape(B, -1, o.shape[-2], o.shape[-1]) for o in out], dim=1)
-        # debug_log("mono concatenated out: ", out.shape, out.min().item(), out.max().item())
         # out = torch.stack(out, dim=1)
         if self.norm == "std":
             out = self.std_normalize(out)
@@ -477,34 +446,25 @@ class Mono2DV2(Mono2D):
         else:
             raise ValueError(f"Invalid normalization method: {self.norm}")
         
-        # debug_log("mono output: out: ", out.shape, out.min().item(), out.max().item())
         return out
 
     def compute_logGabor(self, radius):
         # Obtain the different scales wavelengths
-        # debug_log("wls before rescaling: ", self.wls.shape, self.wls.min().item(), self.wls.max().item(), torch.isnan(self.wls).any(), torch.isinf(self.wls).any())
         wls = self.get_wls()
-        # debug_log("wls after rescaling: ", wls.shape, wls.min().item(), wls.max().item(), torch.isnan(wls).any(), torch.isinf(wls).any())
         # Obtain the center frequencies
         fo = 1.0 / wls
-        # debug_log("mono fo: ", fo.shape, fo.min().item(), fo.max().item(), torch.isnan(fo).any(), torch.isinf(fo).any())
         # Reshape fo to be broadcastable with radius
         fo = fo.view(self.in_channels, self.nscale, 1, 1)
         
         # The parameter sigmaonf is in the range -inf to inf. Rescale it to 0-1
         sigmaonf = torch.sigmoid(self.sigmaonf).view(self.in_channels, self.nscale, 1, 1)
         
-        # debug_log("mono sigmaonf: ", sigmaonf.shape, sigmaonf.min().item(), sigmaonf.max().item(), torch.isnan(sigmaonf).any(), torch.isinf(sigmaonf).any())
         # Construct the filter
         ratio = radius / fo  # or add +1e-8 before log
-        # debug_log("mono ratio: ", ratio.shape, ratio.min().item(), ratio.max().item(), torch.isnan(ratio).any(), torch.isinf(ratio).any())
 
         numerator = -(torch.log(ratio)) ** 2
-        # debug_log("mono numerator: ", numerator.shape, numerator.min().item(), numerator.max().item(), torch.isnan(numerator).any(), torch.isinf(numerator).any())
         denominator = 2 * torch.log(sigmaonf) ** 2
-        # debug_log("mono denominator: ", denominator.shape, denominator.min().item(), denominator.max().item(), torch.isnan(denominator).any(), torch.isinf(denominator).any())
         filter = torch.exp(numerator / denominator)
-        # debug_log("mono filter: ", filter.shape, filter.min().item(), filter.max().item(), torch.isnan(filter).any(), torch.isinf(filter).any())
         # denom = (torch.log(sigmaonf) ** 2) + 1e-12
         # filter = torch.exp(-(torch.log(ratio) ** 2) / (2 * denom))
 

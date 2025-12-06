@@ -119,7 +119,7 @@ class nnUNetDataset(torch.utils.data.Dataset):
         label_filename = f'{self.label_dir}/{img_id}{self.img_ext}'
         
         if self.input_channels == 1:
-            img = cv2.imread(os.path.join(self.img_dir, img_filename), cv2.IMREAD_GRAYSCALE)
+            img = cv2.imread(os.path.join(self.img_dir, img_filename), cv2.IMREAD_GRAYSCALE)[..., None]
         else:
             img = cv2.imread(os.path.join(self.img_dir, img_filename))
         

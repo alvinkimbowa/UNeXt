@@ -15,18 +15,33 @@ lr=0.0001
 epochs=400
 b=8
 fold=4
-save_preds=true
 
 if [[ $arch == "TinyUNet" ]]; then
     min_lr=1e-6
     loss="TinyUNetLoss"
     input_h=256
     input_w=256
+    optimizer="Adam"
+    scheduler="CosineAnnealingLR"
+    weight_decay=1e-4
+elif [[ $arch == "XTinyUNet" ]]; then
+    lr=0.01
+    weight_decay=0.01
+    min_lr=1e-5
+    loss="TinyUNetLoss"
+    input_h=256
+    input_w=256
+    deep_supervision=False
+    optimizer="AdamW"
+    scheduler="PolyLR"
 else
     min_lr=1e-5
     loss="BCEDiceLoss"
     input_w=512
     input_h=512
+    optimizer="Adam"
+    scheduler="CosineAnnealingLR"
+    weight_decay=1e-4
 fi
 
 if [[ $fold -eq 5 ]]; then
@@ -46,6 +61,7 @@ echo "input_h: $input_h"
 echo "b: $b"
 
 # Evaluation settings
+save_preds=false
 test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
 
 if [[ $train -eq 1 ]]; then
@@ -59,7 +75,10 @@ if [[ $train -eq 1 ]]; then
         --b $b \
         --fold $fold \
         --min_lr $min_lr \
-        --loss $loss
+        --loss $loss \
+        --optimizer $optimizer \
+        --scheduler $scheduler \
+        --weight_decay $weight_decay
 fi
 
 if [[ $eval -eq 1 ]]; then

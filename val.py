@@ -21,6 +21,7 @@ import time
 from archs import UNext
 import numpy as np
 from monai.metrics import DiceMetric, HausdorffDistanceMetric, SurfaceDistanceMetric
+from TinyUNet import TinyUNet
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -56,9 +57,13 @@ def main():
     cudnn.benchmark = True
 
     print("=> creating model %s" % config['arch'])
-    model = archs.__dict__[config['arch']](config['num_classes'],
-                                           config['input_channels'],
-                                           config['deep_supervision'])
+    if config['arch'] == "UNext" or config['arch'] == "UNext_S":
+        model = archs.__dict__[config['arch']](config['num_classes'],
+                                               config['input_channels'],
+                                               config['deep_supervision'])
+    elif config['arch'] == "TinyUNet":
+        model = TinyUNet(config['input_channels'],
+                         config['num_classes'])
 
     model = model.cuda()
 

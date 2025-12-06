@@ -21,7 +21,7 @@ from dataset import Dataset, nnUNetDataset
 from metrics import iou_score
 from utils import AverageMeter, str2bool
 from archs import UNext
-
+from TinyUNet import TinyUNet
 
 ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
@@ -224,9 +224,15 @@ def main():
     cudnn.benchmark = True
 
     # create model
-    model = archs.__dict__[config['arch']](config['num_classes'],
-                                           config['input_channels'],
-                                           config['deep_supervision'])
+    if config['arch'] == "UNext" or config['arch'] == "UNext_S":
+        model = archs.__dict__[config['arch']](config['num_classes'],
+                                               config['input_channels'],
+                                               config['deep_supervision'])
+    elif config['arch'] == "TinyUNet":
+        model = TinyUNet(config['input_channels'],
+                         config['num_classes'])
+    else:
+        raise NotImplementedError
 
     model = model.cuda()
 
@@ -252,13 +258,19 @@ def main():
         scheduler = None
     else:
         raise NotImplementedError
-
-    train_transform = Compose([
-        RandomRotate90(),
-        Flip(),
-        Resize(config['input_h'], config['input_w']),
-        transforms.Normalize(),
-    ])
+    
+    if config['arch'] == "TinyUNet":
+        train_transform = Compose([
+            Resize(config['input_h'], config['input_w']),
+            transforms.Normalize(),
+        ])
+    else:
+        train_transform = Compose([
+            RandomRotate90(),
+            Flip(),
+            Resize(config['input_h'], config['input_w']),
+            transforms.Normalize(),
+        ])
 
     val_transform = Compose([
         Resize(config['input_h'], config['input_w']),

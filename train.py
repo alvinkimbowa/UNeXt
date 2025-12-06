@@ -198,7 +198,7 @@ def main():
     config = vars(parse_args())
 
     fold_str = str(config['fold'])
-    model_dir = f"models/{config['dataset']}/fold_{fold_str}"
+    model_dir = f"models/{config['dataset']}/{config['arch']}/fold_{fold_str}"
     os.makedirs(model_dir, exist_ok=True)
     
     if config['name'] is None:

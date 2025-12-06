@@ -404,7 +404,7 @@ def main():
         trigger += 1
 
         if val_log['iou'] > best_iou:
-            torch.save(model.state_dict(), f'{model_dir}/model.pth')
+            torch.save(model.state_dict(), f'{model_dir}/model_best.pth')
             best_iou = val_log['iou']
             print("=> saved best model")
             trigger = 0
@@ -415,6 +415,10 @@ def main():
             break
 
         torch.cuda.empty_cache()
+    
+    torch.save(model.state_dict(), f'{model_dir}/model_final.pth')
+    print("=> saved final model")
+    print("Training completed")
 
 
 if __name__ == '__main__':

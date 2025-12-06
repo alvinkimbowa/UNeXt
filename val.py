@@ -41,6 +41,8 @@ def parse_args():
                         help='test split (Ts or Te)')
     parser.add_argument('--save_preds', type=str2bool, default=False,
                         help='save predictions (True or False)')
+    parser.add_argument('--ckpt', type=str, required=True,
+                        help='model_best.pth')
     args = parser.parse_args()
 
     return args
@@ -77,7 +79,7 @@ def main():
     
     model = model.cuda()
 
-    model.load_state_dict(torch.load(os.path.join(model_dir, 'model.pth')))
+    model.load_state_dict(torch.load(os.path.join(model_dir, args.ckpt)))
     model.eval()
 
     val_transform = Compose([

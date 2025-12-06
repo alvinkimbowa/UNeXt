@@ -14,7 +14,10 @@ arch="UNext"
 lr=0.0001
 epochs=400
 b=8
-fold=4
+# Evaluation settings
+save_preds=false
+test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
+ckpt="model.pth"
 
 if [[ $arch == "TinyUNet" ]]; then
     min_lr=1e-6
@@ -34,6 +37,7 @@ elif [[ $arch == "XTinyUNet" ]]; then
     deep_supervision=False
     optimizer="AdamW"
     scheduler="PolyLR"
+    ckpt="model_best.pth"
 else
     min_lr=1e-5
     loss="BCEDiceLoss"
@@ -60,9 +64,6 @@ echo "input_w: $input_w"
 echo "input_h: $input_h"
 echo "b: $b"
 
-# Evaluation settings
-save_preds=false
-test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
 
 if [[ $train -eq 1 ]]; then
     python train.py \
@@ -95,6 +96,7 @@ if [[ $eval -eq 1 ]]; then
         --train_fold $fold \
         --test_dataset $test_dataset \
         --test_split $test_split \
-        --save_preds $save_preds
+        --save_preds $save_preds \
+        --ckpt $ckpt
     done
 fi

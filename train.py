@@ -100,7 +100,6 @@ def parse_args():
     parser.add_argument('--gamma', default=2/3, type=float)
     parser.add_argument('--early_stopping', default=-1, type=int,
                         metavar='N', help='early stopping (default: -1)')
-    parser.add_argument('--cfg', type=str, metavar="FILE", help='path to config file', )
 
     parser.add_argument('--num_workers', default=4, type=int)
 

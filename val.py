@@ -20,7 +20,6 @@ from albumentations import RandomRotate90,Resize
 import time
 from archs import UNext
 import numpy as np
-from scipy.ndimage import label
 from monai.metrics import DiceMetric, HausdorffDistanceMetric, SurfaceDistanceMetric
 
 def parse_args():
@@ -41,18 +40,6 @@ def parse_args():
     args = parser.parse_args()
 
     return args
-
-def find_largest_component_per_class(segmentation, num_classes):
-    output = np.zeros_like(segmentation)
-    for cls in range(1, num_classes):  # skip background class 0
-        binary_mask = (segmentation == cls).astype(np.uint8)
-        labeled_array, num_features = label(binary_mask)
-        if num_features == 0:
-            continue
-        largest_label = max(range(1, num_features + 1), key=lambda x: np.sum(labeled_array == x))
-        output[labeled_array == largest_label] = cls
-    return output
-
 
 def main():
     args = parse_args()
@@ -124,7 +111,6 @@ def main():
             # compute output
             output = model(input).cpu()
 
-
             iou,dice = iou_score(output, target)
             iou_avg_meter.update(iou, input.size(0))
             dice_avg_meter.update(dice, input.size(0))
@@ -162,7 +148,7 @@ def main():
     print(f"MASD: {masd_score:.2f} ± {masd_std:.2f}")
 
     # Save to CSV
-    results_csv_path = os.path.join(model_dir, 'test', 'results_largest_component.csv')
+    results_csv_path = os.path.join(model_dir, 'test', 'results.csv')
     os.makedirs(os.path.dirname(results_csv_path), exist_ok=True)
     csv_exists = os.path.exists(results_csv_path)
     with open(results_csv_path, 'a', newline='') as csvfile:

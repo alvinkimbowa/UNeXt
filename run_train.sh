@@ -14,6 +14,8 @@ arch="UNext"
 lr=0.0001
 epochs=400
 b=8
+fold=0
+
 # Evaluation settings
 save_preds=false
 test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")

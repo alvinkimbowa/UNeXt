@@ -68,8 +68,8 @@ class XTinyEncoder(nn.Module):
         skip_connections = []
         for i, stage in enumerate(self.stages):
             x = stage(x)
-            skip_connections.append(x)
             if i < len(self.stages) - 1:
+                skip_connections.append(x)
                 x = self.pooling_layers[i](x)
         return x, skip_connections
 
@@ -104,7 +104,7 @@ class XTinyDecoder(nn.Module):
         outputs = []
         for i in range(len(self.stages)):
             x = self.transpose_convs[i](x)
-            x = torch.cat([x, skip_connections[-(i+2)]], dim=1)
+            x = torch.cat([x, skip_connections[-(i+1)]], dim=1)
             x = self.stages[i](x)
             outputs.append(self.ds_seg_heads[i](x))
         

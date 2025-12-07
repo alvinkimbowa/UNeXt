@@ -18,9 +18,9 @@ arch="XTinyMonoUNetScale6"
 # # Exps 2.1: Proposed: Rather than totally filtering the input, dynamically regulate the input signal using local phase info
 # arch="XTinyMonoV2GatedUNet"    # at visual frontend only
 # # Exps 2.2: Use the same gating signal at other parts of the network. Downsample the signal to fit different resolutions.
-arch="XTinyMonoV2GatedEncUNetV0"
+# arch="XTinyMonoV2GatedEncUNetV0"
 # arch="XTinyMonoV2GatedEncUNet"    # within the encoder
-# arch="XTinyMonoUNetgatedencdec"    # within the encoder and decoder
+arch="XTinyMonoV2GatedEncDecUNet"    # within the encoder and decoder
 # arch="XTinyMonoUNetgateddec"    # within the decoder
 # # Exps 2.3: Learn multi-scale gating signals - a separate layer for each stage that takes as input a downsampled version of the input image
 # arch="XTinyMonoUNetgatedencv1"    # within the encoder, using v1 mono layer

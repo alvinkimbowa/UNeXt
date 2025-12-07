@@ -11,7 +11,8 @@ __all__ = [
     'XTinyMonoV2UNetScale6',
     'XTinyMonoV2GatedUNet',
     'XTinyMonoV2GatedEncUNet',
-    'XTinyMonoV2GatedEncUNetV0'
+    'XTinyMonoV2GatedEncUNetV0',
+    'XTinyMonoV2GatedEncDecUNet'
 ]
 
 
@@ -242,7 +243,7 @@ class XTinyGatedEncoder(XTinyEncoder):
             x = stage(x)
             if i < len(self.stages) - 1:
                 skip_connections.append(x)
-                lp_skips.append(lp_stage)
+                lp_skips.append(lp_feat)
                 x = self.pooling_layers[i](x)
                 lp_feat = self.lp_conv_layers[i](lp_feat)
         
@@ -254,6 +255,58 @@ class XTinyGatedEncoder(XTinyEncoder):
     def apply_gate(self, x: torch.Tensor, lp_features: torch.Tensor, layer_idx: int) -> torch.Tensor:
         gate = torch.sigmoid(self.gate_weights[layer_idx] * lp_features + self.gate_biases[layer_idx])
         return x * (1 + self.alphas[layer_idx] * gate)
+
+
+class XTinyMonoV2GatedEncDecUNet(XTinyMonoV2GatedEncUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        
+        self.encoder.return_lp = True
+
+        num_stages = 7 if max(img_size[0], img_size[1]) <= 256 else 8
+        filters = [min(max_filters, init_filters * 2**i) for i in range(num_stages)]
+
+        self.decoder = XTinyGatedDecoder(self.encoder, num_classes, filters, deep_supervision)
+
+        self.initialize_weights()
+    
+    def forward(self, x):
+        x, skip_connections, lp_skips = self.encoder(x)
+        x = self.decoder(x, skip_connections, lp_skips)
+        return x
+
+class XTinyGatedDecoder(XTinyDecoder):
+    def __init__(self, encoder, num_classes=2, filters=[], deep_supervision=True):
+        super().__init__(encoder, num_classes, filters, deep_supervision)
+        
+        stages = []
+        num_stages = len(encoder.stages)
+        for i in range(1, num_stages):
+            stages.append(nn.Sequential(
+                nn.Conv2d(filters[-(i+1)]*3, filters[-(i+1)], kernel_size=3, stride=1, padding=1),
+                nn.InstanceNorm2d(filters[-(i+1)], eps=1e-05, momentum=0.1, affine=True, track_running_stats=False),
+                nn.LeakyReLU(negative_slope=0.01, inplace=True)
+            ))
+        
+        self.stages = nn.ModuleList(stages)
+        self.lp_proj_layers = nn.ModuleList([nn.Conv2d(encoder.mono2d.out_channels, filters[-(i+1)], kernel_size=1, stride=1, bias=False) for i in range(1, num_stages)])
+        self.gate_weights = nn.ParameterList([nn.Parameter(torch.ones(1)) for i in range(len(encoder.stages))])
+        self.gate_biases = nn.ParameterList([nn.Parameter(torch.zeros(1)) for i in range(len(encoder.stages))])
+        self.alphas = nn.ParameterList([nn.Parameter(torch.randn(1)) for i in range(len(encoder.stages))])
+        
+    def forward(self, x, skip_connections, lp_skips):
+        outputs = []
+        for i in range(len(self.stages)):
+            x = self.transpose_convs[i](x)
+            lp_stage = self.lp_proj_layers[i](lp_skips[-(i+1)])
+            x = torch.cat([x, skip_connections[-(i+1)], lp_stage], dim=1)
+            x = self.stages[i](x)
+            outputs.append(self.ds_seg_heads[i](x))
+        
+        if self.deep_supervision:
+            return outputs
+        else:
+            return outputs[-1]
 
 
 class XTinyMonoV2GatedEncUNetV0(XTinyUNet):

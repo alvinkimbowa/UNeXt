@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from monounet.mono_layer import Mono2D, Mono2DV2
 
-__all__ = ['XTinyUNet', 'XTinyMonoUNetScale1', 'XTinyMonoUNetScale6', 'XTinyMonoV2UNetScale1', 'XTinyMonoV2UNetScale6', 'XTinyMonoV2GatedUNet']
+__all__ = ['XTinyUNet', 'XTinyMonoUNetScale1', 'XTinyMonoUNetScale6', 'XTinyMonoV2UNetScale1', 'XTinyMonoV2UNetScale6', 'XTinyMonoV2GatedUNet', 'XTinyMonoV2GatedEncUNet']
 
 
 class XTinyUNet(nn.Module):
@@ -27,7 +27,8 @@ class XTinyUNet(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='leaky_relu')
-                m.bias = nn.init.constant_(m.bias, 0)
+                if m.bias is not None:
+                    m.bias = nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.InstanceNorm2d):
                 m.weight = nn.init.constant_(m.weight, 1)
                 m.bias = nn.init.constant_(m.bias, 0)
@@ -180,6 +181,70 @@ class XTinyMonoV2GatedUNet(XTinyUNet):
         gate = torch.sigmoid(self.gate_weight * mono_feat + self.gate_bias)
         x = x * (1 + self.alpha * gate)     # Use a residual connection to stabilize training
         return super().forward(x)
+
+
+class XTinyMonoV2GatedEncUNet(XTinyUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        
+        num_stages = 7 if max(img_size[0], img_size[1]) <= 256 else 8
+        filters = [min(max_filters, init_filters * 2**i) for i in range(num_stages)]
+        
+        self.encoder = XTinyGatedEncoder(in_channels, filters, deep_supervision=deep_supervision)
+        self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
+
+        self.initialize_weights()
+
+
+class XTinyGatedEncoder(XTinyEncoder):
+    def __init__(self, in_channels=1, filters=[], deep_supervision=True):
+        super().__init__(in_channels, filters, deep_supervision=deep_supervision)
+        
+        num_stages = len(filters)
+        self.mono2d = Mono2DV2(in_channels, nscale=num_stages + 1, norm="std", return_phase=True)
+
+        self.lp_conv_layers = nn.ModuleList(
+            [nn.Conv2d(self.mono2d.out_channels, self.mono2d.out_channels, kernel_size=3, stride=2, padding=1, bias=False) for i in range(num_stages - 1)]
+        )
+        self.lp_proj_layers = nn.ModuleList([nn.Conv2d(self.mono2d.out_channels, filters[i], kernel_size=1, stride=1, bias=False) for i in range(num_stages)])
+        self.gate_weights = nn.ParameterList([nn.Parameter(torch.ones(1)) for i in range(len(self.lp_conv_layers) + 1)])
+        self.gate_biases = nn.ParameterList([nn.Parameter(torch.zeros(1)) for i in range(len(self.lp_conv_layers) + 1)])
+        self.alphas = nn.ParameterList([nn.Parameter(torch.randn(1)) for i in range(len(self.lp_conv_layers) + 1)])
+
+        self.pooling_layers = nn.ModuleList([nn.Sequential(
+                    nn.Conv2d(filters[i], filters[i+1], kernel_size=3, stride=2, padding=1),
+                    nn.InstanceNorm2d(filters[i+1], eps=1e-05, momentum=0.1, affine=True, track_running_stats=False),
+                    nn.LeakyReLU(negative_slope=0.01, inplace=True)
+                ) for i in range(num_stages - 1)])
+
+        self.return_lp = False
+        self.gate_encoder = True
+
+    def forward(self, x):
+        x = self.stem(x)
+        lp_feat = self.mono2d(x)
+        
+        lp_skips = []
+        skip_connections = []
+        for i, stage in enumerate(self.stages):
+            lp_stage = self.lp_proj_layers[i](lp_feat)
+            if self.gate_encoder:
+                x = self.apply_gate(x, lp_stage, i)
+            x = stage(x)
+            if i < len(self.stages) - 1:
+                skip_connections.append(x)
+                lp_skips.append(lp_stage)
+                x = self.pooling_layers[i](x)
+                lp_feat = self.lp_conv_layers[i](lp_feat)
+        
+        if self.return_lp:
+            return x, skip_connections, lp_skips
+        else:
+            return x, skip_connections
+    
+    def apply_gate(self, x: torch.Tensor, lp_features: torch.Tensor, layer_idx: int) -> torch.Tensor:
+        gate = torch.sigmoid(self.gate_weights[layer_idx] * lp_features + self.gate_biases[layer_idx])
+        return x * (1 + self.alphas[layer_idx] * gate)
 
 
 if __name__ == "__main__":

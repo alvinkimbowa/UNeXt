@@ -8,7 +8,7 @@ __all__ = ['XTinyUNet', 'XTinyMonoUNetScale1', 'XTinyMonoUNetScale6', 'XTinyMono
 
 class XTinyUNet(nn.Module):
     def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
-        super(XTinyUNet, self).__init__()
+        super().__init__()
         
         num_stages = 7 if max(img_size[0], img_size[1]) <= 256 else 8
         filters = [min(max_filters, init_filters * 2**i) for i in range(num_stages)]
@@ -35,7 +35,7 @@ class XTinyUNet(nn.Module):
 
 class XTinyEncoder(nn.Module):
     def __init__(self, in_channels=1, filters=[], deep_supervision=True):
-        super(XTinyEncoder, self).__init__()
+        super().__init__()
         
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, filters[0], kernel_size=3, stride=1, padding=1),
@@ -76,7 +76,7 @@ class XTinyEncoder(nn.Module):
 
 class XTinyDecoder(nn.Module):
     def __init__(self, encoder, num_classes=2, filters=[], deep_supervision=True):
-        super(XTinyDecoder, self).__init__()
+        super().__init__()
         
         self.deep_supervision = deep_supervision
         stages = []
@@ -162,6 +162,7 @@ class XTinyMonoV2UNetScale6(XTinyMonoUNetScale1):
         self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
 
         self.initialize_weights()
+
 
 class XTinyMonoV2GatedUNet(XTinyUNet):
     def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):

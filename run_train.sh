@@ -22,7 +22,9 @@ arch="XTinyMonoUNetScale6"
 # arch="XTinyMonoV2GatedEncUNet"    # within the encoder
 arch="XTinyMonoV2GatedEncUNetV1"    # within the encoder
 # arch="XTinyMonoV2GatedEncDecUNet"    # within the encoder and decoder
+# arch="XTinyMonoV2GatedEncDecUNetV1"    # within the encoder and decoder
 # arch="XTinyMonoV2GatedDecUNet"    # within the decoder only
+# arch="XTinyMonoV2GatedDecUNetV1"    # within the decoder only
 # arch="XTinyMonoUNetgateddec"    # within the decoder
 # # Exps 2.3: Learn multi-scale gating signals - a separate layer for each stage that takes as input a downsampled version of the input image
 # arch="XTinyMonoUNetgatedencv1"    # within the encoder, using v1 mono layer

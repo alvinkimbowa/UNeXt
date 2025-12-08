@@ -10,7 +10,8 @@ __all__ = [
     'XTinyMonoV2UNetScale1',
     'XTinyMonoV2UNetScale6',
     'XTinyMonoV2GatedUNet',
-    'XTinyMonoV2GatedEncUNet',
+    'XTinyMonoV2GatedEncUNet'
+    'XTinyMonoV2GatedEncUNetV1',
     'XTinyMonoV2GatedEncUNetV0',
     'XTinyMonoV2GatedEncDecUNet',
     'XTinyMonoV2GatedDecUNet'
@@ -207,6 +208,19 @@ class XTinyMonoV2GatedEncUNet(XTinyUNet):
         self.initialize_weights()
 
 
+class XTinyMonoV2GatedEncUNetV1(XTinyUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        
+        num_stages = 7 if max(img_size[0], img_size[1]) <= 256 else 8
+        filters = [min(max_filters, init_filters * 2**i) for i in range(num_stages)]
+        
+        self.encoder = XTinyGatedEncoderV1(in_channels, filters, deep_supervision=deep_supervision)
+        self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
+
+        self.initialize_weights()
+
+
 class XTinyGatedEncoder(XTinyEncoder):
     def __init__(self, in_channels=1, filters=[], deep_supervision=True):
         super().__init__(in_channels, filters, deep_supervision=deep_supervision)
@@ -256,6 +270,20 @@ class XTinyGatedEncoder(XTinyEncoder):
     def apply_gate(self, x: torch.Tensor, lp_features: torch.Tensor, layer_idx: int) -> torch.Tensor:
         gate = torch.sigmoid(self.gate_weights[layer_idx] * lp_features + self.gate_biases[layer_idx])
         return x * (1 + self.alphas[layer_idx] * gate)
+
+
+class XTinyGatedEncoderV1(XTinyGatedEncoder):
+    def __init__(self, in_channels=1, filters=[], deep_supervision=True):
+        super().__init__(in_channels, filters, deep_supervision=deep_supervision)
+        
+        self.gate_weights = nn.ParameterList([nn.Parameter(torch.ones(filters[i])) for i in range(len(filters))])
+        self.gate_biases = nn.ParameterList([nn.Parameter(torch.zeros(filters[i])) for i in range(len(filters))])
+        self.alphas = nn.ParameterList([nn.Parameter(torch.randn(filters[i])) for i in range(len(filters))])
+    
+    def apply_gate(self, x: torch.Tensor, lp_features: torch.Tensor, layer_idx: int) -> torch.Tensor:
+        gate = torch.sigmoid(self.gate_weights[layer_idx].view(1, -1, 1, 1) * lp_features + self.gate_biases[layer_idx].view(1, -1, 1, 1))
+        return x * (1 + self.alphas[layer_idx].view(1, -1, 1, 1) * gate)
+
 
 
 class XTinyMonoV2GatedEncDecUNet(XTinyMonoV2GatedEncUNet):

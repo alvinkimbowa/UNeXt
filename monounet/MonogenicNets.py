@@ -5,6 +5,7 @@ from monounet.mono_layer import Mono2D, Mono2DV2
 
 __all__ = [
     'XTinyUNet',
+    'XTinyUNetB',
     'XTinyMonoUNetScale1',
     'XTinyMonoUNetScale6',
     'XTinyMonoV2UNetScale1',
@@ -46,6 +47,12 @@ class XTinyUNet(nn.Module):
             elif isinstance(m, nn.InstanceNorm2d):
                 m.weight = nn.init.constant_(m.weight, 1)
                 m.bias = nn.init.constant_(m.bias, 0)
+
+
+class XTinyUNetB(XTinyUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=4, deep_supervision=True):
+        max_filters = 4
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
 
 
 class XTinyEncoder(nn.Module):

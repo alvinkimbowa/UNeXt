@@ -68,7 +68,7 @@ def main():
     if config['arch'] == "UNext" or config['arch'] == "UNext_S":
         model = archs.__dict__[config['arch']](config['num_classes'],
                                                config['input_channels'],
-                                               config['deep_supervision'])
+                                               deep_supervision=False)
     elif config['arch'] == "TinyUNet":
         model = TinyUNet(config['input_channels'],
                          config['num_classes'])
@@ -76,7 +76,7 @@ def main():
         model = monounet.MonogenicNets.__dict__[config['arch']](config['input_channels'],
                                                                 config['num_classes'],
                                                                 img_size=(config['input_h'], config['input_w']),
-                                                                deep_supervision=config['deep_supervision'])
+                                                                deep_supervision=False)
     else:
         raise NotImplementedError
     

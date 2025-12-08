@@ -461,7 +461,7 @@ class XTinyMonoV2GatedDecUNet(XTinyMonoV2GatedEncDecUNet):
         self.encoder.gate_encoder = False
 
 
-class XTinyMonoV2GatedDecUNetV1(XTinyMonoV2GatedEncUNetV1):
+class XTinyMonoV2GatedDecUNetV1(XTinyMonoV2GatedEncDecUNetV1):
     def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
         super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
         

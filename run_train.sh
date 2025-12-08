@@ -18,8 +18,10 @@ dataset_name="Dataset073_GE_LE"
 all_archs=(
     # "UNext"
     # "TinyUNet"
-    # Exps 1: Semi-baseline: similar to Ulises (visual frontend)
+    # Exps 0: Our configuration of reduced UNet
     # "XTinyUNet"
+    "XTinyUNetB"
+    # Exps 1: Semi-baseline: similar to Ulises (visual frontend)
     # "XTinyMonoUNetScale1"
     # "XTinyMonoUNetScale6"
     # "XTinyMonoV2UNetScale1"
@@ -29,7 +31,7 @@ all_archs=(
     # Exps 2.2: Use the same gating signal at other parts of the network. Downsample the signal to fit different resolutions.
     # "XTinyMonoV2GatedEncUNetV0"
     # "XTinyMonoV2GatedEncUNet"    # within the encoder
-    "XTinyMonoV2GatedEncUNetV1"    # within the encoder
+    # "XTinyMonoV2GatedEncUNetV1"    # within the encoder
     # "XTinyMonoV2GatedEncDecUNet"    # within the encoder and decoder
     # "XTinyMonoV2GatedEncDecUNetV1"    # within the encoder and decoder
     # "XTinyMonoV2GatedDecUNet"    # within the decoder only

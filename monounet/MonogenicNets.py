@@ -12,7 +12,8 @@ __all__ = [
     'XTinyMonoV2GatedUNet',
     'XTinyMonoV2GatedEncUNet',
     'XTinyMonoV2GatedEncUNetV0',
-    'XTinyMonoV2GatedEncDecUNet'
+    'XTinyMonoV2GatedEncDecUNet',
+    'XTinyMonoV2GatedDecUNet'
 ]
 
 
@@ -365,6 +366,12 @@ class XTinyGatedEncoderV0(XTinyGatedEncoder):
         else:
             return x, skip_connections
 
+
+class XTinyMonoV2GatedDecUNet(XTinyMonoV2GatedEncDecUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+        
+        self.encoder.gate_encoder = False
 
 
 if __name__ == "__main__":

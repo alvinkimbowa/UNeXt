@@ -31,8 +31,8 @@ all_archs=(
     # Exps 2.2: Use the same gating signal at other parts of the network. Downsample the signal to fit different resolutions.
     # "XTinyMonoV2GatedEncUNetV0"
     # "XTinyMonoV2GatedEncUNet"    # within the encoder
-    # "XTinyMonoV2GatedEncUNetV1"    # within the encoder
-    "XTinyMonoV2GatedEncUNetV1B"    # within the encoder
+    "XTinyMonoV2GatedEncUNetV1"    # within the encoder
+    # "XTinyMonoV2GatedEncUNetV1B"    # within the encoder
     # "XTinyMonoV2GatedEncDecUNet"    # within the encoder and decoder
     # "XTinyMonoV2GatedEncDecUNetV1"    # within the encoder and decoder
     # "XTinyMonoV2GatedDecUNet"    # within the decoder only
@@ -74,6 +74,7 @@ if [[ $arch == "TinyUNet" ]]; then
     scheduler="CosineAnnealingLR"
     weight_decay=1e-4
     deep_supervision=False
+    data_augmentation=False
     input_channels=3
 elif [[ $arch == XTiny* ]]; then
     lr=0.01
@@ -83,6 +84,7 @@ elif [[ $arch == XTiny* ]]; then
     input_h=256
     input_w=256
     deep_supervision=False
+    data_augmentation=True
     optimizer="AdamW"
     scheduler="PolyLR"
     ckpt="model_best.pth"
@@ -96,6 +98,7 @@ else
     scheduler="CosineAnnealingLR"
     weight_decay=1e-4
     deep_supervision=False
+    data_augmentation=False
     input_channels=3
 fi
 
@@ -117,6 +120,7 @@ echo "input_h: $input_h"
 echo "b: $b"
 echo "input_channels: $input_channels"
 echo "deep_supervision: $deep_supervision"
+echo "data_augmentation: $data_augmentation"
 
 if [[ $train -eq 1 ]]; then
     python train.py \
@@ -134,7 +138,8 @@ if [[ $train -eq 1 ]]; then
         --scheduler $scheduler \
         --weight_decay $weight_decay \
         --input_channels $input_channels \
-        --deep_supervision $deep_supervision
+        --deep_supervision $deep_supervision \
+        --data_augmentation $data_augmentation
 fi
 
 if [[ $eval -eq 1 ]]; then
@@ -153,7 +158,8 @@ if [[ $eval -eq 1 ]]; then
         --test_split $test_split \
         --save_preds $save_preds \
         --ckpt $ckpt \
-        --deep_supervision $deep_supervision
+        --deep_supervision $deep_supervision \
+        --data_augmentation $data_augmentation
     done
 fi
 
@@ -196,7 +202,7 @@ if [[ $analyze -eq 1 ]]; then
         analyze_args="--arch $current_arch --input_channels $input_channels --input_h $analyze_input_h --input_w $analyze_input_w --gpu $gpu --deep_supervision $analyze_deep_supervision"
         
         # Save analysis to model directory if it exists
-        model_dir="models/$dataset_name/$current_arch"
+        model_dir="models/$current_arch"
         if [[ -d "$model_dir" ]]; then
             analyze_args="$analyze_args --save $model_dir/model_analysis.json"
         fi

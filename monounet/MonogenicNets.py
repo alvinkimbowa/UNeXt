@@ -13,6 +13,7 @@ __all__ = [
     'XTinyMonoV2GatedUNet',
     'XTinyMonoV2GatedEncUNet',
     'XTinyMonoV2GatedEncUNetV1',
+    'XTinyMonoV2GatedEncUNetV1B',
     'XTinyMonoV2GatedEncUNetV0',
     'XTinyMonoV2GatedEncDecUNet',
     'XTinyMonoV2GatedEncDecUNetV1',
@@ -228,6 +229,12 @@ class XTinyMonoV2GatedEncUNetV1(XTinyUNet):
         self.decoder = XTinyDecoder(self.encoder, num_classes, filters, deep_supervision)
 
         self.initialize_weights()
+
+
+class XTinyMonoV2GatedEncUNetV1B(XTinyMonoV2GatedEncUNetV1):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        max_filters = 4
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
 
 
 class XTinyGatedEncoder(XTinyEncoder):

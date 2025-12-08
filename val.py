@@ -45,6 +45,8 @@ def parse_args():
                         help='model_best.pth')
     parser.add_argument('--deep_supervision', default=False, type=str2bool,
                         help='use deep supervision (affects model directory path)')
+    parser.add_argument('--data_augmentation', default=False, type=str2bool,
+                        help='use data augmentation (affects model directory path)')
     args = parser.parse_args()
 
     return args
@@ -52,8 +54,12 @@ def parse_args():
 def main():
     args = parse_args()
 
-    arch_name = args.name + 'DS' if args.deep_supervision else args.name
-    model_dir = f"models/{args.train_dataset}/{arch_name}/fold_{args.train_fold}"
+    arch_name = args.name
+    if args.deep_supervision:
+        arch_name += 'DS'
+    if args.data_augmentation:
+        arch_name += 'DA'
+    model_dir = f"models/{arch_name}/{args.train_dataset}/fold_{args.train_fold}"
     with open(f'{model_dir}/config.yml', 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 

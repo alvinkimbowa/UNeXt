@@ -18,6 +18,7 @@ from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 from albumentations import RandomRotate90,Resize,Flip
+from albumentations.augmentations.geometric.transforms import Affine
 import torch.nn.functional as F
 
 import archs
@@ -48,6 +49,7 @@ def parse_args():
     # model
     parser.add_argument('--arch', '-a', metavar='ARCH', default='UNext')
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
+    parser.add_argument('--data_augmentation', default=False, type=str2bool)
     parser.add_argument('--input_channels', default=1, type=int,
                         help='input channels')
     parser.add_argument('--num_classes', default=1, type=int,
@@ -242,8 +244,12 @@ def main():
     config = vars(parse_args())
 
     fold_str = str(config['fold'])
-    arch_name = config['arch'] + 'DS' if config['deep_supervision'] else config['arch']
-    model_dir = f"models/{config['dataset']}/{arch_name}/fold_{fold_str}"
+    arch_name = config['arch']
+    if config['deep_supervision']:
+        arch_name += 'DS'
+    if config['data_augmentation']:
+        arch_name += 'DA'
+    model_dir = f"models/{arch_name}/{config['dataset']}/fold_{fold_str}"
     os.makedirs(model_dir, exist_ok=True)
     
     if config['name'] is None:
@@ -319,10 +325,18 @@ def main():
             transforms.Normalize(),
         ])
     elif config['arch'] in MONO_ARCH_NAMES:
-        train_transform = Compose([
-            Resize(config['input_h'], config['input_w']),
-            transforms.Normalize(),
-        ])
+        # For XTiny models, add scaling and rotation if data_augmentation is enabled
+        if config['data_augmentation'] and config['arch'].startswith('XTiny'):
+            train_transform = Compose([
+                Affine(rotate=(-15, 15), scale=(0.8, 1.2), p=0.8),
+                Resize(config['input_h'], config['input_w']),
+                transforms.Normalize(),
+            ])
+        else:
+            train_transform = Compose([
+                Resize(config['input_h'], config['input_w']),
+                transforms.Normalize(),
+            ])
     else:
         train_transform = Compose([
             RandomRotate90(),

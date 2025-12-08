@@ -10,7 +10,7 @@ __all__ = [
     'XTinyMonoV2UNetScale1',
     'XTinyMonoV2UNetScale6',
     'XTinyMonoV2GatedUNet',
-    'XTinyMonoV2GatedEncUNet'
+    'XTinyMonoV2GatedEncUNet',
     'XTinyMonoV2GatedEncUNetV1',
     'XTinyMonoV2GatedEncUNetV0',
     'XTinyMonoV2GatedEncDecUNet',

@@ -423,23 +423,23 @@ class XTinyGatedDecoderV1(XTinyGatedDecoder):
         num_stages = len(encoder.stages)
         for i in range(1, num_stages):
             stages.append(nn.Sequential(
-                nn.Conv2d(filters[-(i+1)]*3, filters[-(i+1)], kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(filters[-(i+1)]*2, filters[-(i+1)], kernel_size=3, stride=1, padding=1),
                 nn.InstanceNorm2d(filters[-(i+1)], eps=1e-05, momentum=0.1, affine=True, track_running_stats=False),
                 nn.LeakyReLU(negative_slope=0.01, inplace=True)
             ))
         
         self.stages = nn.ModuleList(stages)
         self.lp_proj_layers = nn.ModuleList([nn.Conv2d(encoder.mono2d.out_channels, filters[-(i+1)], kernel_size=1, stride=1, bias=False) for i in range(1, num_stages)])
-        self.gate_weights = nn.ParameterList([nn.Parameter(torch.ones(filters[i])) for i in range(len(encoder.stages))])
-        self.gate_biases = nn.ParameterList([nn.Parameter(torch.zeros(filters[i])) for i in range(len(encoder.stages))])
-        self.alphas = nn.ParameterList([nn.Parameter(torch.randn(filters[i])) for i in range(len(encoder.stages))])
+        self.gate_weights = nn.ParameterList([nn.Parameter(torch.ones(filters[-(i+1)])) for i in range(1, len(encoder.stages))])
+        self.gate_biases = nn.ParameterList([nn.Parameter(torch.zeros(filters[-(i+1)])) for i in range(1, len(encoder.stages))])
+        self.alphas = nn.ParameterList([nn.Parameter(torch.randn(filters[-(i+1)])) for i in range(1, len(encoder.stages))])
         
     def forward(self, x, skip_connections, lp_skips):
         outputs = []
         for i in range(len(self.stages)):
             x = self.transpose_convs[i](x)
-            x = self.stages[i](x)
             x = torch.cat([x, skip_connections[-(i+1)]], dim=1)
+            x = self.stages[i](x)
             lp_stage = self.lp_proj_layers[i](lp_skips[-(i+1)])
             x = self.apply_gate(x, lp_stage, i)
             outputs.append(self.ds_seg_heads[i](x))

@@ -60,7 +60,7 @@ fold=0
 # Evaluation settings
 save_preds=false
 test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
-ckpt="model.pth"
+ckpt="model_best.pth"
 
 if [[ $arch == "TinyUNet" ]]; then
     min_lr=1e-6

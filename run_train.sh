@@ -20,7 +20,7 @@ all_archs=(
     # "TinyUNet"
     # Exps 0: Our configuration of reduced UNet
     # "XTinyUNet"
-    "XTinyUNetB"
+    # "XTinyUNetB"
     # Exps 1: Semi-baseline: similar to Ulises (visual frontend)
     # "XTinyMonoUNetScale1"
     # "XTinyMonoUNetScale6"
@@ -32,6 +32,7 @@ all_archs=(
     # "XTinyMonoV2GatedEncUNetV0"
     # "XTinyMonoV2GatedEncUNet"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1"    # within the encoder
+    "XTinyMonoV2GatedEncUNetV1B"    # within the encoder
     # "XTinyMonoV2GatedEncDecUNet"    # within the encoder and decoder
     # "XTinyMonoV2GatedEncDecUNetV1"    # within the encoder and decoder
     # "XTinyMonoV2GatedDecUNet"    # within the decoder only

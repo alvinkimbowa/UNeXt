@@ -18,6 +18,8 @@ from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 from albumentations import RandomRotate90,Resize,Flip
+import torch.nn.functional as F
+
 import archs
 import losses
 from dataset import Dataset, nnUNetDataset
@@ -161,7 +163,7 @@ def train(config, train_loader, model, criterion, optimizer):
             outputs = model(input)
             loss = 0
             for output in outputs:
-                loss += criterion(output, target)
+                loss += criterion(output, F.interpolate(target, output.size()[2:], mode='nearest'))
             loss /= len(outputs)
             iou,dice = iou_score(outputs[-1], target)
         else:
@@ -210,7 +212,7 @@ def validate(config, val_loader, model, criterion):
                 outputs = model(input)
                 loss = 0
                 for output in outputs:
-                    loss += criterion(output, target)
+                    loss += criterion(output, F.interpolate(target, output.size()[2:], mode='nearest'))
                 loss /= len(outputs)
                 iou,dice = iou_score(outputs[-1], target)
             else:
@@ -240,7 +242,8 @@ def main():
     config = vars(parse_args())
 
     fold_str = str(config['fold'])
-    model_dir = f"models/{config['dataset']}/{config['arch']}/fold_{fold_str}"
+    arch_name = config['arch'] + 'DS' if config['deep_supervision'] else config['arch']
+    model_dir = f"models/{config['dataset']}/{arch_name}/fold_{fold_str}"
     os.makedirs(model_dir, exist_ok=True)
     
     if config['name'] is None:

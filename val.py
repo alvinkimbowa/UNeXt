@@ -43,6 +43,8 @@ def parse_args():
                         help='save predictions (True or False)')
     parser.add_argument('--ckpt', type=str, required=True,
                         help='model_best.pth')
+    parser.add_argument('--deep_supervision', default=False, type=str2bool,
+                        help='use deep supervision (affects model directory path)')
     args = parser.parse_args()
 
     return args
@@ -50,7 +52,8 @@ def parse_args():
 def main():
     args = parse_args()
 
-    model_dir = f"models/{args.train_dataset}/{args.name}/fold_{args.train_fold}"
+    arch_name = args.name + 'DS' if args.deep_supervision else args.name
+    model_dir = f"models/{args.train_dataset}/{arch_name}/fold_{args.train_fold}"
     with open(f'{model_dir}/config.yml', 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 

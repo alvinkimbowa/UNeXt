@@ -83,6 +83,7 @@ elif [[ $arch == XTiny* ]]; then
     optimizer="AdamW"
     scheduler="PolyLR"
     ckpt="model_best.pth"
+    input_channels=1
 else
     min_lr=1e-5
     loss="BCEDiceLoss"
@@ -112,6 +113,7 @@ echo "input_w: $input_w"
 echo "input_h: $input_h"
 echo "b: $b"
 echo "input_channels: $input_channels"
+echo "deep_supervision: $deep_supervision"
 
 if [[ $train -eq 1 ]]; then
     python train.py \
@@ -128,7 +130,8 @@ if [[ $train -eq 1 ]]; then
         --optimizer $optimizer \
         --scheduler $scheduler \
         --weight_decay $weight_decay \
-        --input_channels $input_channels
+        --input_channels $input_channels \
+        --deep_supervision $deep_supervision
 fi
 
 if [[ $eval -eq 1 ]]; then
@@ -146,7 +149,8 @@ if [[ $eval -eq 1 ]]; then
         --test_dataset $test_dataset \
         --test_split $test_split \
         --save_preds $save_preds \
-        --ckpt $ckpt
+        --ckpt $ckpt \
+        --deep_supervision $deep_supervision
     done
 fi
 

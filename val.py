@@ -266,7 +266,7 @@ def main():
     print(f"MASD: {masd_score:.2f} ± {masd_std:.2f}")
 
     # Save to CSV
-    results_csv_path = os.path.join(model_dir, 'test', 'results.csv')
+    results_csv_path = os.path.join(model_dir, 'test', f'results{"_largest_component" if args.largest_component else ""}.csv')
     os.makedirs(os.path.dirname(results_csv_path), exist_ok=True)
     csv_exists = os.path.exists(results_csv_path)
     with open(results_csv_path, 'a', newline='') as csvfile:

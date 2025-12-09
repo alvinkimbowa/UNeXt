@@ -6,6 +6,9 @@ from monounet.mono_layer import Mono2D, Mono2DV2
 __all__ = [
     'XTinyUNet',
     'XTinyUNetB',
+    'XTinyUNetL',
+    'XTinyUNetH',
+    'XTinyUNetXL',
     'XTinyMonoUNetScale1',
     'XTinyMonoUNetScale6',
     'XTinyMonoV2UNetScale1',
@@ -56,6 +59,25 @@ class XTinyUNet(nn.Module):
 class XTinyUNetB(XTinyUNet):
     def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=4, deep_supervision=True):
         max_filters = 4
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+
+
+class XTinyUNetL(XTinyUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=4, deep_supervision=True):
+        max_filters = 8
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+
+
+class XTinyUNetH(XTinyUNet):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=4, deep_supervision=True):
+        max_filters = 16
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+
+
+class XTinyUNetXL(XTinyUNet):
+
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=4, deep_supervision=True):
+        max_filters = 32
         super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
 
 

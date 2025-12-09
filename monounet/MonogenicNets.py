@@ -14,6 +14,9 @@ __all__ = [
     'XTinyMonoV2GatedEncUNet',
     'XTinyMonoV2GatedEncUNetV1',
     'XTinyMonoV2GatedEncUNetV1B',
+    'XTinyMonoV2GatedEncUNetV1L',
+    'XTinyMonoV2GatedEncUNetV1H',
+    'XTinyMonoV2GatedEncUNetV1XL',
     'XTinyMonoV2GatedEncUNetV0',
     'XTinyMonoV2GatedEncDecUNet',
     'XTinyMonoV2GatedEncDecUNetV1',
@@ -234,6 +237,24 @@ class XTinyMonoV2GatedEncUNetV1(XTinyUNet):
 class XTinyMonoV2GatedEncUNetV1B(XTinyMonoV2GatedEncUNetV1):
     def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
         max_filters = 4
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+
+
+class XTinyMonoV2GatedEncUNetV1L(XTinyMonoV2GatedEncUNetV1):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        max_filters = 8
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+
+
+class XTinyMonoV2GatedEncUNetV1H(XTinyMonoV2GatedEncUNetV1):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        max_filters = 16
+        super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
+
+
+class XTinyMonoV2GatedEncUNetV1XL(XTinyMonoV2GatedEncUNetV1):
+    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=1, max_filters=2, deep_supervision=True):
+        max_filters = 32
         super().__init__(in_channels, num_classes, img_size, init_filters, max_filters, deep_supervision)
 
 

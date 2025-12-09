@@ -22,7 +22,7 @@ gpu=1
 export CUDA_VISIBLE_DEVICES=$gpu
 
 # Evaluation settings
-save_preds=true
+save_preds=false
 overlay=true
 # test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
 test_datasets=("Dataset078_KneeUS_OtherDevices")
@@ -47,8 +47,11 @@ all_archs=(
     # Exps 2.2: Use the same gating signal at other parts of the network. Downsample the signal to fit different resolutions.
     # "XTinyMonoV2GatedEncUNetV0"
     # "XTinyMonoV2GatedEncUNet"    # within the encoder
-    "XTinyMonoV2GatedEncUNetV1"    # within the encoder
+    # "XTinyMonoV2GatedEncUNetV1"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1B"    # within the encoder
+    "XTinyMonoV2GatedEncUNetV1L"    # within the encoder
+    # "XTinyMonoV2GatedEncUNetV1H"    # within the encoder
+    # "XTinyMonoV2GatedEncUNetV1XL"    # within the encoder
     # "XTinyMonoV2GatedEncDecUNet"    # within the encoder and decoder
     # "XTinyMonoV2GatedEncDecUNetV1"    # within the encoder and decoder
     # "XTinyMonoV2GatedDecUNet"    # within the decoder only

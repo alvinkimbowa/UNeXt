@@ -232,7 +232,7 @@ def main():
     torch.cuda.empty_cache()
 
     print("Overlay mode is enabled. Metrics will not be calculated.")
-    if args.overlay:
+    if args.save_preds and args.overlay:
         return
     
     # Calculate metrics

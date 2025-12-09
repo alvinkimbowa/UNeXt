@@ -11,6 +11,22 @@ train=1
 eval=0
 analyze=1
 dataset_name="Dataset073_GE_LE"
+# dataset_name="Dataset072_GE_LQP9"
+# dataset_name="Dataset070_Clarius_L15"
+lr=0.0001
+epochs=400
+b=8
+fold=0
+
+gpu=1
+export CUDA_VISIBLE_DEVICES=$gpu
+
+# Evaluation settings
+save_preds=true
+overlay=true
+# test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
+test_datasets=("Dataset078_KneeUS_OtherDevices")
+ckpt="model_best.pth"
 
 # Architecture list - comment/uncomment to select which models to use
 # For train/eval: uncomment only ONE architecture
@@ -54,16 +70,6 @@ if [[ $arch =~ ^[[:space:]]*# ]]; then
     echo "Error: First architecture in all_archs is commented. Please uncomment at least one architecture."
     exit 1
 fi
-
-lr=0.0001
-epochs=400
-b=8
-fold=0
-
-# Evaluation settings
-save_preds=false
-test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
-ckpt="model_best.pth"
 
 if [[ $arch == "TinyUNet" ]]; then
     min_lr=1e-6

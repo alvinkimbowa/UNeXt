@@ -11,6 +11,7 @@ from albumentations.augmentations import transforms
 from albumentations.core.composition import Compose
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 import archs
 from dataset import nnUNetDataset
@@ -25,6 +26,55 @@ from TinyUNet import TinyUNet
 import monounet.MonogenicNets
 
 MONO_ARCH_NAMES = monounet.MonogenicNets.__all__
+
+def visualize_prediction(img, pred, gt=None, dice=None, masd=None, hd95=None, save_path=None):
+    """
+    Visualize prediction overlaid on input image with optional ground truth and metrics.
+    
+    Args:
+        img: Input image as numpy array (H, W) for grayscale or (H, W, 3) for RGB
+        pred: Prediction mask as numpy array (H, W) with values 0 or 1
+        gt: Optional ground truth mask as numpy array (H, W) with values 0 or 1
+        dice: Optional dice score (0-100)
+        masd: Optional MASD score
+        hd95: Optional HD95 score
+        save_path: Path to save the visualized image
+    """
+    plt.figure(figsize=(4, 4))
+    plt.imshow(img, cmap='gray')
+    
+    if gt is not None and gt.max() > 0:
+        plt.contour(gt, colors='#90EE90', linewidths=1)
+    
+    # Overlay prediction (red)
+    plt.contour(pred, colors='#FF0000', linewidths=1)
+    
+    # Add metrics text at bottom left
+    metrics_text = []
+    if dice is not None:
+        metrics_text.append(f'Dice: {dice*100:.2f}%')
+    if masd is not None:
+        metrics_text.append(f'MASD: {masd:.2f}')
+    if hd95 is not None:
+        metrics_text.append(f'HD95: {hd95:.2f}')
+        
+    text_str = '\n'.join(metrics_text)
+    img_height, img_width = img.shape[:2]
+        
+    plt.text(img_width * 0.02, img_height * 0.98, text_str,
+            fontsize=10, color='white',
+            verticalalignment='bottom',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='black'))
+    
+    plt.axis('off')
+    plt.tight_layout()
+    
+    if save_path:
+        print("Saving prediction to: ", save_path)
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, bbox_inches='tight', pad_inches=0, dpi=300)
+    plt.close()
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -47,6 +97,8 @@ def parse_args():
                         help='use deep supervision (affects model directory path)')
     parser.add_argument('--data_augmentation', default=False, type=str2bool,
                         help='use data augmentation (affects model directory path)')
+    parser.add_argument('--overlay', type=str2bool, default=False,
+                        help='overlay predictions on images and save visualized images (True or False)')
     args = parser.parse_args()
 
     return args
@@ -132,6 +184,11 @@ def main():
     if args.save_preds:
         save_dir = os.path.join(model_dir, 'test', args.test_dataset, 'preds')
         os.makedirs(save_dir, exist_ok=True)
+    
+    if args.overlay:
+        overlay_dir = os.path.join(model_dir, 'test', args.test_dataset, 'overlays')
+        os.makedirs(overlay_dir, exist_ok=True)
+        
     with torch.no_grad():
         for input, target, meta in tqdm(val_loader, total=len(val_loader)):
             input = input.cuda()
@@ -147,19 +204,36 @@ def main():
             output[output>=0.5]=1
             output[output<0.5]=0
 
-            dice_metric(output, target)
-            hd95_metric(output, target)
-            surface_dice_metric(output, target)
+            dice = dice_metric(output, target)
+            hd95 = hd95_metric(output, target)
+            masd = surface_dice_metric(output, target)
 
             output = output.numpy()
 
             if args.save_preds:
                 for i in range(len(output)):
                     for c in range(config['num_classes']):
-                        cv2.imwrite(os.path.join(save_dir, meta['img_id'][i] + '.png'),
-                                (output[i, c] * 255).astype('uint8'))
+                        if args.overlay:
+                            save_path = os.path.join(overlay_dir, meta['img_id'][i] + '.png')
+                            visualize_prediction(
+                                img=input[i, 0, :, :].cpu().numpy(),
+                                gt=target[i, c].cpu().numpy(),
+                                pred=output[i, c],
+                                dice=dice[i].item(),
+                                masd=masd[i].item(),
+                                hd95=hd95[i].item(),
+                                save_path=save_path
+                            )
+                        else:
+                            cv2.imwrite(os.path.join(save_dir, meta['img_id'][i] + '.png'),
+                                    (output[i, c] * 255).astype('uint8'))
+            
 
     torch.cuda.empty_cache()
+
+    print("Overlay mode is enabled. Metrics will not be calculated.")
+    if args.overlay:
+        return
     
     # Calculate metrics
     dice_score = dice_metric.aggregate().item() * 100
@@ -199,8 +273,6 @@ def main():
         })
     
     print(f"Results saved to: {results_csv_path}\n")
-
-
 
 
 if __name__ == '__main__':

@@ -319,20 +319,21 @@ def main():
     else:
         raise NotImplementedError
     
-    if config['arch'] == "TinyUNet":
+    if config['data_augmentation']:
+        # The XTinyMonoV2 models only need scaling (and rotation!!?).
+        # No need for color, intensity, contrast, brightness, etc. augmentations.
+        # The monogenic layer makes these obselete as it is already invariant to these.
+        train_transform = Compose([
+                Affine(rotate=(-15, 15), scale=(0.8, 1.2), p=0.8),
+                Resize(config['input_h'], config['input_w']),
+                transforms.Normalize(),
+            ])
+    elif config['arch'] == "TinyUNet":
         train_transform = Compose([
             Resize(config['input_h'], config['input_w']),
             transforms.Normalize(),
         ])
     elif config['arch'] in MONO_ARCH_NAMES:
-        # For XTiny models, add scaling and rotation if data_augmentation is enabled
-        if config['data_augmentation'] and config['arch'].startswith('XTiny'):
-            train_transform = Compose([
-                Affine(rotate=(-15, 15), scale=(0.8, 1.2), p=0.8),
-                Resize(config['input_h'], config['input_w']),
-                transforms.Normalize(),
-            ])
-        else:
             train_transform = Compose([
                 Resize(config['input_h'], config['input_w']),
                 transforms.Normalize(),

@@ -24,8 +24,7 @@ export CUDA_VISIBLE_DEVICES=$gpu
 # Evaluation settings
 save_preds=false
 overlay=true
-# test_datasets=("Dataset073_GE_LE" "Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
-test_datasets=("Dataset078_KneeUS_OtherDevices")
+largest_component=true
 ckpt="model_best.pth"
 
 # Architecture list - comment/uncomment to select which models to use
@@ -85,6 +84,7 @@ if [[ $arch == "TinyUNet" ]]; then
     deep_supervision=False
     data_augmentation=False
     input_channels=3
+    largest_component=false
 elif [[ $arch == XTiny* ]]; then
     lr=0.01
     weight_decay=0.01
@@ -109,6 +109,7 @@ else
     deep_supervision=False
     data_augmentation=False
     input_channels=3
+    largest_component=false
 fi
 
 if [[ $fold -eq 5 ]]; then
@@ -168,7 +169,9 @@ if [[ $eval -eq 1 ]]; then
         --save_preds $save_preds \
         --ckpt $ckpt \
         --deep_supervision $deep_supervision \
-        --data_augmentation $data_augmentation
+        --data_augmentation $data_augmentation \
+        --overlay $overlay \
+        --largest_component $largest_component
     done
 fi
 

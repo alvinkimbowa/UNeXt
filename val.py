@@ -12,6 +12,7 @@ from albumentations.core.composition import Compose
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from scipy.ndimage import label
 
 import archs
 from dataset import nnUNetDataset
@@ -99,9 +100,23 @@ def parse_args():
                         help='use data augmentation (affects model directory path)')
     parser.add_argument('--overlay', type=str2bool, default=False,
                         help='overlay predictions on images and save visualized images (True or False)')
+    parser.add_argument('--largest_component', type=str2bool, default=False,
+                        help='keep only the largest connected component (True or False)')
     args = parser.parse_args()
 
     return args
+
+def find_largest_component_per_class(segmentation, num_classes):
+    output = np.zeros_like(segmentation)
+    for i in range(segmentation.shape[0]):
+        for cls in range(1, num_classes):  # skip background class 0
+            binary_mask = (segmentation[i] == cls).astype(np.uint8)
+            labeled_array, num_features = label(binary_mask)
+            if num_features == 0:
+                continue
+            largest_label = max(range(1, num_features + 1), key=lambda x: np.sum(labeled_array == x))
+            output[i][labeled_array == largest_label] = cls
+    return output
 
 def main():
     args = parse_args()
@@ -196,13 +211,14 @@ def main():
             # compute output
             output = model(input).cpu()
 
-            iou,dice = iou_score(output, target)
-            iou_avg_meter.update(iou, input.size(0))
-            dice_avg_meter.update(dice, input.size(0))
-
             output = torch.sigmoid(output)
             output[output>=0.5]=1
             output[output<0.5]=0
+
+            if args.largest_component:
+                output = output.cpu().numpy()
+                output = find_largest_component_per_class(output, config['num_classes'] + 1)
+                output = torch.from_numpy(output)
 
             dice = dice_metric(output, target)
             hd95 = hd95_metric(output, target)

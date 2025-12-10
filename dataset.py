@@ -81,6 +81,7 @@ class nnUNetDataset(torch.utils.data.Dataset):
     def __init__(self, dataset_name, input_channels, split, fold=None, split_type='train', transform=None, eval=False):
         self.transform = transform
         self.input_channels = input_channels
+        self.eval = eval
         
         nnunet_raw = os.environ['nnUNet_raw']
         nnunet_preprocessed = os.environ['nnUNet_preprocessed']
@@ -91,9 +92,9 @@ class nnUNetDataset(torch.utils.data.Dataset):
             dataset_info = json.load(f)
         self.img_ext = dataset_info['file_ending']
         
-        if eval:
+        if self.eval:
             img_ids = glob(f'{self.img_dir}/*{self.img_ext}')
-            self.img_ids = [os.path.basename(img_id).rsplit('.', 1)[0].replace('_0000', '') for img_id in img_ids]
+            self.img_ids = [os.path.basename(img_id).replace(f'_0000{self.img_ext}', '') for img_id in img_ids]
         else:
             with open(os.path.join(f'{nnunet_preprocessed}/{dataset_name}/splits_final.json'), 'r') as f:
                 splits = json.load(f)
@@ -123,7 +124,12 @@ class nnUNetDataset(torch.utils.data.Dataset):
         else:
             img = cv2.imread(os.path.join(self.img_dir, img_filename))
         
-        mask = cv2.imread(os.path.join(self.label_dir, label_filename), cv2.IMREAD_GRAYSCALE)[..., None]
+        if os.path.exists(os.path.join(self.label_dir, label_filename)):
+            mask = cv2.imread(os.path.join(self.label_dir, label_filename), cv2.IMREAD_GRAYSCALE)[..., None]
+        elif self.eval:
+            mask = np.zeros(img.shape[:2])[..., None]
+        else:
+            raise ValueError(f"Label file not found: {os.path.join(self.label_dir, label_filename)}")
         
         if self.transform is not None:
             augmented = self.transform(image=img, mask=mask)

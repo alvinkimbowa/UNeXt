@@ -94,7 +94,6 @@ elif [[ $arch == XTiny* ]]; then
     input_h=256
     input_w=256
     deep_supervision=False
-    data_augmentation=True
     optimizer="AdamW"
     scheduler="PolyLR"
     ckpt="model_best.pth"

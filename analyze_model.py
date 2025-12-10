@@ -130,10 +130,9 @@ def analyze_model(arch, input_channels=1, num_classes=2, input_h=256, input_w=25
     }
     
     # Save metrics to JSON
-    if save_path:
-        with open(save_path, 'w') as f:
-            json.dump(metrics, f, indent=2)
-        print(f"Metrics saved to: {save_path}")
+    with open(save_path, 'w') as f:
+        json.dump(metrics, f, indent=2)
+    print(f"Metrics saved to: {save_path}")
     
     return metrics
 
@@ -158,7 +157,7 @@ def main():
                         help='Path to save metrics JSON (optional)')
     
     args = parser.parse_args()
-    
+    print("save path: ", args.save)
     analyze_model(
         arch=args.arch,
         input_channels=args.input_channels,

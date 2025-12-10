@@ -200,7 +200,7 @@ def main():
         save_dir = os.path.join(model_dir, 'test', args.test_dataset, 'preds')
         os.makedirs(save_dir, exist_ok=True)
     
-    if args.overlay:
+    if args.overlay and args.save_preds:
         overlay_dir = os.path.join(model_dir, 'test', args.test_dataset, 'overlays')
         os.makedirs(overlay_dir, exist_ok=True)
         

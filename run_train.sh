@@ -8,10 +8,10 @@ export nnUNet_preprocessed=$nnUNet_preprocessed
 export NO_ALBUMENTATIONS_UPDATE=1
 
 train=1
-eval=0
-analyze=1
-dataset_name="Dataset073_GE_LE"
-# dataset_name="Dataset072_GE_LQP9"
+eval=1
+analyze=0
+dataset_name="Dataset072_GE_LQP9"
+# dataset_name="Dataset073_GE_LE"
 # dataset_name="Dataset070_Clarius_L15"
 lr=0.0001
 epochs=400
@@ -24,7 +24,10 @@ export CUDA_VISIBLE_DEVICES=$gpu
 # Evaluation settings
 save_preds=false
 overlay=true
+data_augmentation=true
 largest_component=true
+test_datasets=("Dataset072_GE_LQP9" "Dataset073_GE_LE" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
+# test_datasets=("Dataset078_KneeUS_OtherDevices")
 ckpt="model_best.pth"
 
 # Architecture list - comment/uncomment to select which models to use
@@ -82,9 +85,7 @@ if [[ $arch == "TinyUNet" ]]; then
     scheduler="CosineAnnealingLR"
     weight_decay=1e-4
     deep_supervision=False
-    data_augmentation=False
     input_channels=3
-    largest_component=false
 elif [[ $arch == XTiny* ]]; then
     lr=0.01
     weight_decay=0.01
@@ -107,9 +108,7 @@ else
     scheduler="CosineAnnealingLR"
     weight_decay=1e-4
     deep_supervision=False
-    data_augmentation=False
     input_channels=3
-    largest_component=false
 fi
 
 if [[ $fold -eq 5 ]]; then
@@ -131,6 +130,7 @@ echo "b: $b"
 echo "input_channels: $input_channels"
 echo "deep_supervision: $deep_supervision"
 echo "data_augmentation: $data_augmentation"
+echo "largest_component: $largest_component"
 
 if [[ $train -eq 1 ]]; then
     python train.py \
@@ -214,6 +214,10 @@ if [[ $analyze -eq 1 ]]; then
         analyze_args="--arch $current_arch --input_channels $input_channels --input_h $analyze_input_h --input_w $analyze_input_w --gpu $gpu --deep_supervision $analyze_deep_supervision"
         
         # Save analysis to model directory if it exists
+        if [[ $data_augmentation == true ]]; then
+            current_arch="$current_arch"DA
+        fi
+
         model_dir="models/$current_arch"
         if [[ -d "$model_dir" ]]; then
             analyze_args="$analyze_args --save $model_dir/model_analysis.json"

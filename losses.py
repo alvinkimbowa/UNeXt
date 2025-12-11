@@ -7,7 +7,7 @@ try:
 except ImportError:
     pass
 
-__all__ = ['BCEDiceLoss', 'LovaszHingeLoss', 'TinyUNetLoss']
+__all__ = ['BCEDiceLoss', 'LovaszHingeLoss', 'TinyUNetLoss', 'UNetLoss']
 
 
 class BCEDiceLoss(nn.Module):
@@ -25,6 +25,15 @@ class BCEDiceLoss(nn.Module):
         dice = (2. * intersection.sum(1) + smooth) / (input.sum(1) + target.sum(1) + smooth)
         dice = 1 - dice.sum() / num
         return 0.5 * bce + dice
+
+
+class UNetLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input, target):
+        ce = nn.CrossEntropyLoss()
+        return ce(input, target.squeeze(1).long())
 
 class TinyUNetLoss(nn.Module):
     def __init__(self):

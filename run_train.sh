@@ -34,6 +34,7 @@ ckpt="model_best.pth"
 # For train/eval: uncomment only ONE architecture
 # For analyze: uncomment ALL architectures you want to analyze
 all_archs=(
+    "UNet"
     # "UNext"
     # "TinyUNet"
     # Exps 0: Our configuration of reduced UNet
@@ -51,7 +52,8 @@ all_archs=(
     # "XTinyMonoV2GatedEncUNet"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1B"    # within the encoder
-    "XTinyMonoV2GatedEncUNetV1L"    # within the encoder
+    # "XTinyMonoV2GatedEncUNetV1L"    # within the encoder
+    # "XTinyMonoV2GatedEncUNetV1LV3"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1H"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1XL"    # within the encoder
     # "XTinyMonoV2GatedEncDecUNet"    # within the encoder and decoder
@@ -76,7 +78,19 @@ if [[ $arch =~ ^[[:space:]]*# ]]; then
     exit 1
 fi
 
-if [[ $arch == "TinyUNet" ]]; then
+if [[ $arch == "UNet" ]]; then
+    min_lr=1e-5
+    loss="UNetLoss"
+    input_h=256
+    input_w=256
+    optimizer="SGD"
+    momentum=0.99
+    scheduler="ConstantLR"
+    weight_decay=1e-4
+    input_channels=1
+    deep_supervision=False
+    num_classes=2
+elif [[ $arch == "TinyUNet" ]]; then
     min_lr=1e-6
     loss="TinyUNetLoss"
     input_h=256
@@ -86,6 +100,7 @@ if [[ $arch == "TinyUNet" ]]; then
     weight_decay=1e-4
     deep_supervision=False
     input_channels=3
+    num_classes=1
 elif [[ $arch == XTiny* ]]; then
     lr=0.01
     weight_decay=0.01
@@ -98,16 +113,18 @@ elif [[ $arch == XTiny* ]]; then
     scheduler="PolyLR"
     ckpt="model_best.pth"
     input_channels=1
+    num_classes=1
 else
     min_lr=1e-5
     loss="BCEDiceLoss"
-    input_w=512
-    input_h=512
+    input_w=256
+    input_h=256
     optimizer="Adam"
     scheduler="CosineAnnealingLR"
     weight_decay=1e-4
     deep_supervision=False
     input_channels=3
+    num_classes=1
 fi
 
 if [[ $fold -eq 5 ]]; then

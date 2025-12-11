@@ -25,6 +25,7 @@ import numpy as np
 from monai.metrics import DiceMetric, HausdorffDistanceMetric, SurfaceDistanceMetric
 from TinyUNet import TinyUNet
 import monounet.MonogenicNets
+from monounet.MonogenicNets import center_crop
 
 MONO_ARCH_NAMES = monounet.MonogenicNets.__all__
 
@@ -220,9 +221,9 @@ def main():
                 output = find_largest_component_per_class(output, config['num_classes'] + 1)
                 output = torch.from_numpy(output)
 
-            dice = dice_metric(output, target)
-            hd95 = hd95_metric(output, target)
-            masd = surface_dice_metric(output, target)
+            dice = dice_metric(output, center_crop(target, output.shape[2:]))
+            hd95 = hd95_metric(output, center_crop(target, output.shape[2:]))
+            masd = surface_dice_metric(output, center_crop(target, output.shape[2:]))
 
             output = output.numpy()
 

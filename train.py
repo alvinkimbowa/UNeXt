@@ -27,6 +27,7 @@ from dataset import Dataset, nnUNetDataset
 from metrics import iou_score
 from utils import AverageMeter, str2bool
 from archs import UNext
+from monounet.MonogenicNets import center_crop
 from TinyUNet import TinyUNet
 import monounet.MonogenicNets
 
@@ -52,7 +53,7 @@ def parse_args():
     parser.add_argument('--data_augmentation', default=False, type=str2bool)
     parser.add_argument('--input_channels', default=1, type=int,
                         help='input channels')
-    parser.add_argument('--num_classes', default=1, type=int,
+    parser.add_argument('--num_classes', default=2, type=int,
                         help='number of classes')
     parser.add_argument('--input_w', default=256, type=int,
                         help='image width')
@@ -165,13 +166,19 @@ def train(config, train_loader, model, criterion, optimizer):
             outputs = model(input)
             loss = 0
             for output in outputs:
-                loss += criterion(output, F.interpolate(target, output.size()[2:], mode='nearest'))
+                # Center crop target to match output size
+                target_cropped = center_crop(target, output.size()[2:])
+                loss += criterion(output, target_cropped)
             loss /= len(outputs)
-            iou,dice = iou_score(outputs[-1], target)
+            # Center crop target for metrics on final output
+            target_cropped = center_crop(target, outputs[-1].size()[2:])
+            iou,dice = iou_score(outputs[-1], target_cropped)
         else:
             output = model(input)
-            loss = criterion(output, target)
-            iou,dice = iou_score(output, target)
+            # Center crop target to match output size
+            target_cropped = center_crop(target, output.size()[2:])
+            loss = criterion(output, target_cropped)
+            iou,dice = iou_score(output, target_cropped)
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
@@ -214,13 +221,19 @@ def validate(config, val_loader, model, criterion):
                 outputs = model(input)
                 loss = 0
                 for output in outputs:
-                    loss += criterion(output, F.interpolate(target, output.size()[2:], mode='nearest'))
+                    # Center crop target to match output size
+                    target_cropped = center_crop(target, output.size()[2:])
+                    loss += criterion(output, target_cropped)
                 loss /= len(outputs)
-                iou,dice = iou_score(outputs[-1], target)
+                # Center crop target for metrics on final output
+                target_cropped = center_crop(target, outputs[-1].size()[2:])
+                iou,dice = iou_score(outputs[-1], target_cropped)
             else:
                 output = model(input)
-                loss = criterion(output, target)
-                iou,dice = iou_score(output, target)
+                # Center crop target to match output size
+                target_cropped = center_crop(target, output.size()[2:])
+                loss = criterion(output, target_cropped)
+                iou,dice = iou_score(output, target_cropped)
 
             avg_meters['loss'].update(loss.item(), input.size(0))
             avg_meters['iou'].update(iou, input.size(0))

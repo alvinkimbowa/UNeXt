@@ -218,6 +218,11 @@ def main():
         for input, target, meta in tqdm(val_loader, total=len(val_loader)):
             input = input.cuda()
             model = model.cuda()
+
+            # check if target is 0,1.. if it is 0,255 then convert it to 0,1
+            if target.max() == 255:
+                target = (target / 255).long()
+
             # compute output
             output = model(input).cpu()
 
@@ -229,6 +234,10 @@ def main():
                 output = output.cpu().numpy()
                 output = find_largest_component_per_class(output, config['num_classes'] + 1)
                 output = torch.from_numpy(output)
+
+                target = target.cpu().numpy()
+                target = find_largest_component_per_class(target, config['num_classes'] + 1)
+                target = torch.from_numpy(target)
 
             dice = dice_metric(output, center_crop(target, output.shape[2:]))
             hd95 = hd95_metric(output, center_crop(target, output.shape[2:]))

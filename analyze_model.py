@@ -16,9 +16,11 @@ import archs
 from TinyUNet import TinyUNet
 import monounet.MonogenicNets
 from utils import str2bool
+import monounet.MonoUNets
 
 ARCH_NAMES = archs.__all__
 MONO_ARCH_NAMES = monounet.MonogenicNets.__all__
+MONOUNET_ARCH_NAMES = monounet.MonoUNets.__all__
 
 
 def load_model(arch, input_channels, num_classes, input_h, input_w, deep_supervision=False):
@@ -31,6 +33,13 @@ def load_model(arch, input_channels, num_classes, input_h, input_w, deep_supervi
         model = monounet.MonogenicNets.__dict__[arch](
             input_channels,
             num_classes,
+            img_size=(input_h, input_w),
+            deep_supervision=deep_supervision
+        )
+    elif arch in MONOUNET_ARCH_NAMES:
+        model = monounet.MonoUNets.__dict__[arch](
+            in_channels=input_channels,
+            num_classes=num_classes,
             img_size=(input_h, input_w),
             deep_supervision=deep_supervision
         )

@@ -7,3 +7,4 @@ scikit-learn
 tensorboard
 albucore==0.0.16
 mmcv
+seaborn

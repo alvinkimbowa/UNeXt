@@ -204,7 +204,9 @@ def main():
     if args.overlay and args.save_preds:
         overlay_dir = os.path.join(model_dir, 'test', args.test_dataset, 'overlays')
         os.makedirs(overlay_dir, exist_ok=True)
-        
+    
+    # Collect image IDs to match with metrics later
+    image_ids = []        
     with torch.no_grad():
         for input, target, meta in tqdm(val_loader, total=len(val_loader)):
             input = input.cuda()
@@ -226,6 +228,10 @@ def main():
             masd = surface_dice_metric(output, center_crop(target, output.shape[2:]))
 
             output = output.numpy()
+            
+            # Collect image IDs
+            for i in range(len(output)):
+                image_ids.append(meta['img_id'][i])
 
             if args.save_preds:
                 for i in range(len(output)):
@@ -266,10 +272,10 @@ def main():
     print(f"HD95: {hd95_score:.2f} ± {hd95_std:.2f}")
     print(f"MASD: {masd_score:.2f} ± {masd_std:.2f}")
 
-    # Save to CSV
+    # Save aggregated metrics to CSV
     results_csv_path = os.path.join(model_dir, 'test', f'results{"_largest_component" if args.largest_component else ""}.csv')
     os.makedirs(os.path.dirname(results_csv_path), exist_ok=True)
-    csv_exists = os.path.exists(results_csv_path)
+    csv_exists = os.path.exists(results_csv_path) and os.path.getsize(results_csv_path) > 0
     with open(results_csv_path, 'a', newline='') as csvfile:
         fieldnames = ['test_dataset_name', 'dice', 'dice_std', 'hd95', 'hd95_std', 'masd', 'masd_std']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -290,6 +296,39 @@ def main():
         })
     
     print(f"Results saved to: {results_csv_path}\n")
+    
+    # Save image-wise metrics to CSV (extract from metric buffers)
+    if args.test_dataset == args.train_dataset:
+        image_wise_csv_path = os.path.join(os.path.dirname(model_dir), f'image_wise_results{"_largest_component" if args.largest_component else ""}_{args.test_dataset}.csv')
+    else:
+        image_wise_csv_path = os.path.join(model_dir, 'test', f'image_wise_results{"_largest_component" if args.largest_component else ""}_{args.test_dataset}.csv')
+    
+    os.makedirs(os.path.dirname(image_wise_csv_path), exist_ok=True)
+    
+    # Extract per-image metrics from metric buffers
+    dice_buffer = dice_metric.get_buffer() * 100  # Convert to percentage
+    hd95_buffer = hd95_metric.get_buffer()
+    masd_buffer = surface_dice_metric.get_buffer()
+    
+    csv_exists = os.path.exists(image_wise_csv_path) and os.path.getsize(image_wise_csv_path) > 0
+    with open(image_wise_csv_path, 'a', newline='') as csvfile:
+        fieldnames = ['image_id', 'dice', 'hd95', 'masd']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        
+        # Write header only if file doesn't exist or is empty
+        if not csv_exists:
+            writer.writeheader()
+        
+        # Write image-wise results
+        for i, image_id in enumerate(image_ids):
+            writer.writerow({
+                'image_id': image_id,
+                'dice': f"{dice_buffer[i].item():.2f}",
+                'hd95': f"{hd95_buffer[i].item():.2f}",
+                'masd': f"{masd_buffer[i].item():.2f}"
+            })
+    
+    print(f"Image-wise results saved to: {image_wise_csv_path}\n")
 
 
 if __name__ == '__main__':

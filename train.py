@@ -1,5 +1,6 @@
 import argparse
 import os
+import json
 from collections import OrderedDict
 from glob import glob
 
@@ -106,6 +107,10 @@ def parse_args():
     parser.add_argument('--gamma', default=2/3, type=float)
     parser.add_argument('--early_stopping', default=-1, type=int,
                         metavar='N', help='early stopping (default: -1)')
+    parser.add_argument('--resume', default=None, type=str,
+                        help='path to checkpoint to resume training')
+    parser.add_argument('--save_every', default=10, type=int,
+                        help='save full model checkpoint every N epochs (default: 10)')
 
     parser.add_argument('--num_workers', default=4, type=int)
 
@@ -147,6 +152,100 @@ def plot_training_curves(log_data, output_path):
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
+
+
+def _flatten_list(values):
+    flat = []
+    for v in values:
+        if isinstance(v, (list, tuple)):
+            flat.extend(_flatten_list(v))
+        else:
+            flat.append(float(v))
+    return flat
+
+
+def log_mono_params(model, mono_history, epoch):
+    """
+    Collect Mono2D* params (rescaled via get_params) and accumulate in memory.
+    """
+    for name, module in model.named_modules():
+        if not isinstance(module, Mono2D):
+            continue
+        params = module.get_params()
+        if name not in mono_history:
+            mono_history[name] = {
+                "epochs": [],
+                "wls": [],
+                "wls_x": [],
+                "wls_y": [],
+                "sigmaonf": [],
+            }
+        entry = mono_history[name]
+        entry["epochs"].append(epoch)
+        # Store flattened values to keep arrays JSON-friendly
+        entry["wls"].append(_flatten_list(params.get("wls", [])) if params.get("wls", None) is not None else None)
+        entry["wls_x"].append(_flatten_list(params.get("wls_x", [])) if params.get("wls_x", None) is not None else None)
+        entry["wls_y"].append(_flatten_list(params.get("wls_y", [])) if params.get("wls_y", None) is not None else None)
+        entry["sigmaonf"].append(_flatten_list(params.get("sigmaonf", [])) if params.get("sigmaonf", None) is not None else None)
+
+
+def save_mono_param_logs(mono_history, model_dir):
+    """
+    Save a single JSON of all epochs and plot trajectories for wls/wls_x/wls_y/sigmaonf.
+    Call this every epoch to keep plots/files updated like loss curves.
+    """
+    if not mono_history:
+        return
+
+    out_dir = os.path.join(model_dir, "mono_params")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Save one JSON with full history (overwrites each call)
+    json_path = os.path.join(out_dir, "mono_params_all_epochs.json")
+    with open(json_path, "w") as f:
+        json.dump(mono_history, f, indent=2)
+
+    # Plot trajectories per module (overwrites each call)
+    for name, hist in mono_history.items():
+        epochs = hist.get("epochs", [])
+        if not epochs:
+            continue
+
+        to_plot = []
+        for key in ["wls", "wls_x", "wls_y", "sigmaonf"]:
+            series = hist.get(key, [])
+            # Skip if empty or all None
+            if not series or all(v is None for v in series):
+                continue
+            to_plot.append((key, series))
+
+        if not to_plot:
+            continue
+
+        fig, axes = plt.subplots(len(to_plot), 1, figsize=(8, 3 * len(to_plot)), squeeze=False)
+        axes = axes[:, 0]
+        for ax, (label, series) in zip(axes, to_plot):
+            max_len = max(len(v) for v in series if v is not None)
+            for idx in range(max_len):
+                xs, ys = [], []
+                for ep, values in zip(epochs, series):
+                    if values is None or idx >= len(values):
+                        continue
+                    xs.append(ep)
+                    ys.append(values[idx])
+                if not xs:
+                    continue
+                ax.plot(xs, ys, label=f"{label}[{idx}]", linewidth=1)
+            ax.set_title(f"{name} - {label} over epochs")
+            ax.set_xlabel("epoch")
+            ax.set_ylabel(label)
+            ax.grid(True, alpha=0.3)
+            ax.legend(fontsize=8, ncol=2)
+
+        plt.tight_layout()
+        fig_path = os.path.join(out_dir, f"{name.replace('.', '_')}_trajectories.png")
+        plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
 
 
 # args = parser.parse_args()
@@ -309,6 +408,7 @@ def main():
     else:
         raise NotImplementedError
 
+    print(model)
     model = model.cuda()
 
     params = filter(lambda p: p.requires_grad, model.parameters())
@@ -409,10 +509,30 @@ def main():
         ('val_iou', []),
         ('val_dice', []),
     ])
+    mono_history = {}
 
-    best_iou = 0
+    best_dice = 0
     trigger = 0
-    for epoch in range(config['epochs']):
+    start_epoch = 0
+
+    device = next(model.parameters()).device
+    ckpt_path = config.get('resume') or os.path.join(model_dir, "model_latest.pth")
+    if os.path.exists(ckpt_path):
+        checkpoint = torch.load(ckpt_path, weights_only=False, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if checkpoint['scheduler_state_dict'] and scheduler:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        best_dice = checkpoint.get('best_dice', checkpoint.get('best_iou', best_dice))
+        start_epoch = checkpoint['epoch'] + 1
+        if 'log' in checkpoint and isinstance(checkpoint['log'], OrderedDict):
+            log = checkpoint['log']
+        if 'mono_history' in checkpoint and isinstance(checkpoint['mono_history'], dict):
+            mono_history = checkpoint['mono_history']
+        trigger = checkpoint.get('trigger', trigger)
+        print(f"Loaded checkpoint from epoch {start_epoch}")
+
+    for epoch in range(start_epoch, config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
         # train for one epoch
@@ -439,6 +559,10 @@ def main():
         log['val_iou'].append(val_log['iou'])
         log['val_dice'].append(val_log['dice'])
 
+        # Log Mono2D parameter snapshots (rescaled values) per epoch
+        log_mono_params(model, mono_history, epoch)
+        save_mono_param_logs(mono_history, model_dir)
+
         pd.DataFrame(log).to_csv(f'{model_dir}/log.csv', index=False)
         
         # Plot training curves
@@ -446,11 +570,31 @@ def main():
 
         trigger += 1
 
-        if val_log['iou'] > best_iou:
+        if val_log['dice'] > best_dice:
             torch.save(model.state_dict(), f'{model_dir}/model_best.pth')
-            best_iou = val_log['iou']
+            best_dice = val_log['dice']
             print("=> saved best model")
             trigger = 0
+
+        # Save full checkpoint for resuming every save_every epochs
+        if (epoch + 1) % config['save_every'] == 0:
+            checkpoint_payload = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict() if scheduler is not None else None,
+                'best_dice': best_dice,
+                'trigger': trigger,
+                'log': log,
+                'mono_history': mono_history,
+                'config': config,
+                # legacy aliases for backward compatibility
+                'state_dict': model.state_dict(),
+                'optimizer_state': optimizer.state_dict(),
+                'scheduler_state': scheduler.state_dict() if scheduler is not None else None,
+                'best_iou': best_dice,
+            }
+            torch.save(checkpoint_payload, ckpt_path)
 
         # early stopping
         if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
@@ -459,8 +603,26 @@ def main():
 
         torch.cuda.empty_cache()
     
-    torch.save(model.state_dict(), f'{model_dir}/model_final.pth')
+    # Save final checkpoint with full training state
+    final_checkpoint = {
+        'epoch': config['epochs'] - 1,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict() if scheduler is not None else None,
+        'best_dice': best_dice,
+        'trigger': trigger,
+        'log': log,
+        'mono_history': mono_history,
+        'config': config,
+        # legacy aliases for backward compatibility
+        'state_dict': model.state_dict(),
+        'optimizer_state': optimizer.state_dict(),
+        'scheduler_state': scheduler.state_dict() if scheduler is not None else None,
+        'best_iou': best_dice,
+    }
+    torch.save(final_checkpoint, f'{model_dir}/model_final.pth')
     print("=> saved final model")
+    save_mono_param_logs(mono_history, model_dir)
     print("Training completed")
 
 

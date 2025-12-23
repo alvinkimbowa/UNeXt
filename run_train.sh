@@ -17,6 +17,7 @@ lr=0.0001
 epochs=400
 b=8
 fold=0
+resume_ckpt="auto"   # "auto" will use models/<arch_name>/<dataset>/fold_<fold>/checkpoint_latest.pth
 
 gpu=1
 export CUDA_VISIBLE_DEVICES=$gpu
@@ -119,7 +120,6 @@ elif [[ $arch == XTiny* || $arch == MonoUNet* ]]; then
     deep_supervision=False
     optimizer="AdamW"
     scheduler="PolyLR"
-    ckpt="model_best.pth"
     input_channels=1
     num_classes=1
 else
@@ -157,6 +157,26 @@ echo "data_augmentation: $data_augmentation"
 echo "largest_component: $largest_component"
 
 if [[ $train -eq 1 ]]; then
+    arch_name="$arch"
+    if [[ $deep_supervision == True || $deep_supervision == true ]]; then
+        arch_name="${arch_name}DS"
+    fi
+    if [[ $data_augmentation == True || $data_augmentation == true ]]; then
+        arch_name="${arch_name}DA"
+    fi
+
+    if [[ "$resume_ckpt" == "auto" || -z "$resume_ckpt" ]]; then
+        # Search for either model_latest.pth (for resuming) or model_final.pth (if training completed)
+        ckpt_dir="models/${arch_name}/${dataset_name}/fold_${fold}"
+        if [[ -f "${ckpt_dir}/model_latest.pth" ]]; then
+            resume_ckpt="${ckpt_dir}/model_latest.pth"
+        elif [[ -f "${ckpt_dir}/model_final.pth" ]]; then
+            resume_ckpt="${ckpt_dir}/model_final.pth"
+        else
+            resume_ckpt="${ckpt_dir}/model_latest.pth"  # Default path, will be created if doesn't exist
+        fi
+    fi
+
     python train.py \
         --dataset $dataset_name \
         --arch $arch \
@@ -174,7 +194,8 @@ if [[ $train -eq 1 ]]; then
         --input_channels $input_channels \
         --deep_supervision $deep_supervision \
         --data_augmentation $data_augmentation \
-        --num_classes $num_classes
+        --num_classes $num_classes \
+        --resume "$resume_ckpt"
 fi
 
 if [[ $eval -eq 1 ]]; then

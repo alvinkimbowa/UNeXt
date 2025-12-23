@@ -35,7 +35,8 @@ ckpt="model_best.pth"
 # For train/eval: uncomment only ONE architecture
 # For analyze: uncomment ALL architectures you want to analyze
 all_archs=(
-    "MonoUNetBase"
+    "UNet"
+    # "MonoUNetBase"
     # "MonoUNetE1"
     # "MonoUNetE12"
     # "MonoUNetE123"
@@ -43,7 +44,6 @@ all_archs=(
     # "MonoUNetE1234D1"
     # "MonoUNetE1234D12"
     # "MonoUNetE1234D123"
-    # "UNet"
     # "UNext"
     # "TinyUNet"
     # Exps 0: Our configuration of reduced UNet

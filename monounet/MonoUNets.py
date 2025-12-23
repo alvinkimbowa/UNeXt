@@ -4,6 +4,7 @@ import torch.nn as nn
 from monounet.mono_layer import Mono2DV3
 
 __all__ = [
+    'UNet',
     'MonoUNetBase',
     'MonoUNetE1',
     'MonoUNetE12',
@@ -227,6 +228,11 @@ class MonoUNetEEncoder(XTinyEncoder):
 # -------------------------
 # MonoUNetE variants - Monogenic features injected into encoder stages
 # -------------------------
+
+class UNet(MonoUNetBase):
+    def __init__(self, **kwargs):
+        super().__init__(init_filters=32, max_filters=512, **kwargs)
+
 
 class MonoUNetE1(MonoUNetBase):
     def __init__(self, **kwargs):

@@ -4,7 +4,6 @@ import torch.nn as nn
 from monounet.mono_layer import Mono2D, Mono2DV2
 
 __all__ = [
-    'UNet',
     'XTinyUNet',
     'XTinyUNetB',
     'XTinyUNetL',
@@ -37,113 +36,6 @@ def center_crop(skip, target_size):
     offset_w = (skip_w - target_w) // 2
     cropped = skip[:, :, offset_h:offset_h + target_h, offset_w:offset_w + target_w]
     return cropped
-
-
-class UNet(nn.Module):
-    def __init__(self, in_channels=1, num_classes=2, img_size=(256, 256), init_filters=64, deep_supervision=True):
-        super().__init__()
-        
-        filters = [init_filters * 2**i for i in range(5)]
-        
-        self.encoder = UNetEncoder(in_channels, filters)
-        self.decoder = UNetDecoder(self.encoder, num_classes, filters)
-
-        self.initialize_weights()
-
-    def forward(self, x):
-        x, skip_connections = self.encoder(x)
-        x = self.decoder(x, skip_connections)
-        return x
-    
-    def initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                m.weight = nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='leaky_relu')
-                if m.bias is not None:
-                    m.bias = nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.InstanceNorm2d):
-                m.weight = nn.init.constant_(m.weight, 1)
-                m.bias = nn.init.constant_(m.bias, 0)
-
-
-class UNetEncoder(nn.Module):
-    def __init__(self, in_channels=1, filters=[]):
-        super().__init__()
-        
-        stages = []
-        pooling_layers = []
-
-        num_stages = len(filters)
-        for i in range(num_stages):
-            # Conv Block
-            if i == 0:
-                block0 = nn.Sequential(
-                    nn.Conv2d(in_channels, filters[i], kernel_size=3, stride=1, padding=0),
-                    nn.ReLU(inplace=True)
-                )
-            else:
-                block0 = nn.Sequential(
-                    nn.Conv2d(filters[i-1], filters[i], kernel_size=3, stride=1, padding=0),
-                    nn.ReLU(inplace=True)
-                )
-            
-            block1 = nn.Sequential(
-                nn.Conv2d(filters[i], filters[i], kernel_size=3, stride=1, padding=0),
-                nn.ReLU(inplace=True)
-            )
-
-            stages.append(nn.Sequential(block0, block1))
-
-            if i < num_stages - 1:
-                # Pooling Block
-                pooling_layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
-        
-        self.stages = nn.ModuleList(stages)
-        self.pooling_layers = nn.ModuleList(pooling_layers)
-
-    def forward(self, x):
-        skip_connections = []
-        for i, stage in enumerate(self.stages):
-            x = stage(x)
-            if i < len(self.stages) - 1:
-                skip_connections.append(x)
-                x = self.pooling_layers[i](x)
-        return x, skip_connections
-
-
-class UNetDecoder(nn.Module):
-    def __init__(self, encoder, num_classes=2, filters=[]):
-        super().__init__()
-        
-        stages = []
-        num_stages = len(encoder.stages)
-        transpose_convs = []
-        for i in range(1, num_stages):
-            block0 = nn.Sequential(
-                nn.Conv2d(filters[-(i+1)]*2, filters[-(i+1)], kernel_size=3, stride=1, padding=0),
-                nn.ReLU(inplace=True)
-            )
-
-            block1 = nn.Sequential(
-                nn.Conv2d(filters[-(i+1)], filters[-(i+1)], kernel_size=3, stride=1, padding=0),
-                nn.ReLU(inplace=True)
-            )
-            stages.append(nn.Sequential(block0, block1))
-            transpose_convs.append(nn.ConvTranspose2d(filters[-i], filters[-(i+1)], kernel_size=2, stride=2))
-            
-        self.stages = nn.ModuleList(stages)
-        self.transpose_convs = nn.ModuleList(transpose_convs)
-        self.seg_head = nn.Conv2d(filters[0], num_classes, kernel_size=1, stride=1)
-
-    
-    def forward(self, x, skip_connections):
-        for i in range(len(self.stages)):
-            x = self.transpose_convs[i](x)
-            skip = center_crop(skip_connections[-(i+1)], x.shape[2:])
-            x = torch.cat([x, skip], dim=1)
-            x = self.stages[i](x)
-        x = self.seg_head(x)
-        return x
 
 
 class XTinyUNet(nn.Module):

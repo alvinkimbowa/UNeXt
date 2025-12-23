@@ -34,7 +34,15 @@ ckpt="model_best.pth"
 # For train/eval: uncomment only ONE architecture
 # For analyze: uncomment ALL architectures you want to analyze
 all_archs=(
-    "UNet"
+    "MonoUNetBase"
+    # "MonoUNetE1"
+    # "MonoUNetE12"
+    # "MonoUNetE123"
+    # "MonoUNetE1234"
+    # "MonoUNetE1234D1"
+    # "MonoUNetE1234D12"
+    # "MonoUNetE1234D123"
+    # "UNet"
     # "UNext"
     # "TinyUNet"
     # Exps 0: Our configuration of reduced UNet
@@ -101,7 +109,7 @@ elif [[ $arch == "TinyUNet" ]]; then
     deep_supervision=False
     input_channels=3
     num_classes=1
-elif [[ $arch == XTiny* ]]; then
+elif [[ $arch == XTiny* || $arch == MonoUNet* ]]; then
     lr=0.01
     weight_decay=0.01
     min_lr=1e-5
@@ -165,7 +173,8 @@ if [[ $train -eq 1 ]]; then
         --weight_decay $weight_decay \
         --input_channels $input_channels \
         --deep_supervision $deep_supervision \
-        --data_augmentation $data_augmentation
+        --data_augmentation $data_augmentation \
+        --num_classes $num_classes
 fi
 
 if [[ $eval -eq 1 ]]; then
@@ -217,7 +226,7 @@ if [[ $analyze -eq 1 ]]; then
             analyze_input_h=256
             analyze_input_w=256
             analyze_deep_supervision=False
-        elif [[ $current_arch == XTiny* ]]; then
+        elif [[ $current_arch == XTiny* || $current_arch == MonoUNet* ]]; then
             analyze_input_h=256
             analyze_input_w=256
             analyze_deep_supervision=False

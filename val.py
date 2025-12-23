@@ -26,8 +26,10 @@ from monai.metrics import DiceMetric, HausdorffDistanceMetric, SurfaceDistanceMe
 from TinyUNet import TinyUNet
 import monounet.MonogenicNets
 from monounet.MonogenicNets import center_crop
+import monounet.MonoUNets
 
 MONO_ARCH_NAMES = monounet.MonogenicNets.__all__
+MONOUNET_ARCH_NAMES = monounet.MonoUNets.__all__
 
 def visualize_prediction(img, pred, gt=None, dice=None, masd=None, hd95=None, save_path=None):
     """
@@ -149,6 +151,11 @@ def main():
     elif config['arch'] in MONO_ARCH_NAMES:
         model = monounet.MonogenicNets.__dict__[config['arch']](config['input_channels'],
                                                                 config['num_classes'],
+                                                                img_size=(config['input_h'], config['input_w']),
+                                                                deep_supervision=False)
+    elif config['arch'] in MONOUNET_ARCH_NAMES:
+        model = monounet.MonoUNets.__dict__[config['arch']](in_channels=config['input_channels'],
+                                                                num_classes=config['num_classes'],
                                                                 img_size=(config['input_h'], config['input_w']),
                                                                 deep_supervision=False)
     else:

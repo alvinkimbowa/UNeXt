@@ -527,3 +527,116 @@ class Mono2DV2(Mono2D):
 
     def extra_repr(self) -> str:
         return f"in_channels={self.in_channels}, out_channels={self.out_channels}, " + super().extra_repr()
+
+
+class Mono2DV3(Mono2DV2):
+    """
+    Mono2DV3: learn ONLY 1 base wavelength per channel (center wl0), and generate the
+    remaining nscale wavelengths geometrically using a learnable scaling factor.
+    Bandwidth (sigmaonf) is shared across scales (one per channel).
+    """
+    def __init__(self, in_channels: int = 1, nscale: int = 3, factor: float = 2.5, **kwargs):
+        self.in_channels = in_channels
+        self.nscale = nscale
+        super().__init__(in_channels, nscale=nscale, **kwargs)
+        self.factor = nn.Parameter(self.initialize_factor(factor), requires_grad=self.trainable)
+
+    def initialize_sigmaonf(self, sigmaonf):
+        # Learn ONE sigmaonf per channel (shared across scales)
+        if sigmaonf is None:
+            return torch.randn(self.in_channels, 1) * 0.05
+        else:
+            sigmaonf = torch.as_tensor(sigmaonf, dtype=torch.float32)
+            if sigmaonf.ndim == 0:
+                sigmaonf = sigmaonf.repeat(self.in_channels, 1)
+            else:
+                sigmaonf = sigmaonf.reshape(-1)
+                assert sigmaonf.numel() == self.in_channels
+                sigmaonf = sigmaonf.view(self.in_channels, 1)
+            valid = torch.all((sigmaonf > 0) & (sigmaonf < 1))
+            assert bool(valid)
+            return torch.log(sigmaonf / (1 - sigmaonf))
+
+    def initialize_wls(self, wls):
+        # Learn ONE base wavelength per channel (wl0)
+        if wls is None:
+            return torch.randn(self.in_channels, 1)
+        else:
+            wls = np.asarray(wls)
+            assert np.all(wls > 0)
+            wls = torch.as_tensor(wls, dtype=torch.float32).reshape(-1)
+            if wls.numel() == 1:
+                wls = wls.repeat(self.in_channels)
+            assert wls.numel() == self.in_channels
+            wls = wls.view(self.in_channels, 1)
+            wls = (wls - self.min_wl) / (self.max_wl - self.min_wl)
+            return torch.log(wls / (1 - wls))
+
+    def initialize_factor(self, factor):
+        """
+        factor is the geometric ratio r constrained to (1, r_max):
+        r = 1 + sigmoid(p) * (r_max - 1)
+        """
+        if self.nscale <= 1:
+            return torch.zeros(1)
+
+        r_max = float((self.max_wl / self.min_wl) ** (1.0 / (self.nscale - 1)))
+
+        if factor is None:
+            factor = r_max
+        else:
+            factor = float(factor)
+
+        # keep inside (1, r_max)
+        factor = max(1.0001, min(factor, r_max - 1e-6))
+
+        alpha = (factor - 1.0) / (r_max - 1.0)  # in (0,1)
+        alpha = np.clip(alpha, 1e-6, 1 - 1e-6)
+        p = torch.log(torch.tensor(alpha, dtype=torch.float32) / (1 - torch.tensor(alpha, dtype=torch.float32)))
+        return p.view(1)
+
+    def get_factor(self):
+        if self.nscale <= 1:
+            return torch.tensor(1.0, device=self.factor.device, dtype=self.factor.dtype)
+        alpha = torch.sigmoid(self.factor)  # (0,1)
+        r_max = (self.max_wl / self.min_wl) ** (1.0 / (self.nscale - 1))
+        r = 1.0 + alpha * (r_max - 1.0)
+        return r
+
+
+    def get_sigmaonf(self):
+        # Broadcast shared sigmaonf across scales
+        s = torch.sigmoid(self.sigmaonf).clamp(1e-6, 1 - 1e-6)  # (C,1)
+        return s.repeat(1, self.nscale)  # (C,nscale)
+
+    def get_wls(self):
+        # geometric progression: wl_s = wl0 * r^s, with wl0 learned
+        r = self.get_factor()                   # scalar > 1
+        wl0_max = self.max_wl / (r ** (self.nscale - 1))
+        wl0_max = torch.clamp(wl0_max, min=self.min_wl + 1e-6)
+
+        wl0 = torch.sigmoid(self.wls)                               # (C,1) in (0,1)
+        wl0 = self.min_wl + wl0 * (wl0_max - self.min_wl)            # (C,1) in [min_wl, max_wl]
+
+        exps = torch.arange(self.nscale, device=wl0.device, dtype=wl0.dtype).view(1, self.nscale)
+        wls = wl0 * (r ** exps)                 # (C,nscale)
+        return wls
+
+    def compute_logGabor(self, radius):
+        # Same as Mono2DV2 but uses shared sigmaonf and geometric wls
+        wls = self.get_wls()
+        fo = 1.0 / wls
+        fo = fo.view(self.in_channels, self.nscale, 1, 1)
+
+        sigmaonf = self.get_sigmaonf().view(self.in_channels, self.nscale, 1, 1)
+
+        ratio = radius / fo
+        numerator = -(torch.log(ratio)) ** 2
+        denominator = 2 * torch.log(sigmaonf) ** 2
+        filter = torch.exp(numerator / denominator)
+        return filter.to(self.get_device())
+
+    def get_params(self):
+        params = super().get_params()
+        params["factor"] = self.get_factor().item()
+        return params

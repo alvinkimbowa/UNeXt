@@ -25,7 +25,7 @@ export CUDA_VISIBLE_DEVICES=$gpu
 # Evaluation settings
 save_preds=false
 overlay=true
-data_augmentation=true
+data_augmentation=false
 largest_component=true
 test_datasets=("Dataset072_GE_LQP9" "Dataset073_GE_LE" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
 # test_datasets=("Dataset078_KneeUS_OtherDevices")
@@ -155,6 +155,7 @@ echo "input_channels: $input_channels"
 echo "deep_supervision: $deep_supervision"
 echo "data_augmentation: $data_augmentation"
 echo "largest_component: $largest_component"
+echo "num_classes: $num_classes"
 
 if [[ $train -eq 1 ]]; then
     arch_name="$arch"
@@ -201,7 +202,7 @@ fi
 if [[ $eval -eq 1 ]]; then
     for test_dataset in ${test_datasets[@]}; do
         echo "Evaluating $test_dataset"
-        if [[ $test_dataset == "Dataset078_KneeUS_OtherDevices" ]]; then
+        if [[ $test_dataset == "Dataset078_KneeUS_OtherDevices" || $test_dataset == "Dataset079_KneeUS_Ilker" ]]; then
             test_split="Ts"
         else
             test_split="Tr"
@@ -265,6 +266,7 @@ if [[ $analyze -eq 1 ]]; then
         fi
 
         model_dir="models/$current_arch"
+        echo "model_dir: $model_dir"
         if [[ -d "$model_dir" ]]; then
             analyze_args="$analyze_args --save $model_dir/model_analysis.json"
         fi

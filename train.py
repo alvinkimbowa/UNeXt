@@ -30,14 +30,14 @@ from utils import AverageMeter, str2bool
 from archs import UNext
 from monounet.MonogenicNets import center_crop
 from TinyUNet import TinyUNet
-import monounet.MonogenicNets
+from monounet import MonogenicNets, MonoUNets
 from monounet.mono_layer import Mono2D
 
 ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
-MONO_ARCH_NAMES = monounet.MonogenicNets.__all__
-MONOUNET_ARCH_NAMES = monounet.MonoUNets.__all__
+MONO_ARCH_NAMES = MonogenicNets.__all__
+MONOUNET_ARCH_NAMES = MonoUNets.__all__
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -396,12 +396,12 @@ def main():
         model = TinyUNet(config['input_channels'],
                          config['num_classes'])
     elif config['arch'] in MONO_ARCH_NAMES:
-        model = monounet.MonogenicNets.__dict__[config['arch']](config['input_channels'],
+        model = MonogenicNets.__dict__[config['arch']](config['input_channels'],
                                                                 config['num_classes'],
                                                                 img_size=(config['input_h'], config['input_w']),
                                                                 deep_supervision=config['deep_supervision'])
     elif config['arch'] in MONOUNET_ARCH_NAMES:
-        model = monounet.MonoUNets.__dict__[config['arch']](in_channels=config['input_channels'],
+        model = MonoUNets.__dict__[config['arch']](in_channels=config['input_channels'],
                                                                 num_classes=config['num_classes'],
                                                                 img_size=(config['input_h'], config['input_w']),
                                                                 deep_supervision=config['deep_supervision'])

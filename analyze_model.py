@@ -14,13 +14,12 @@ from thop import profile, clever_format
 
 import archs
 from TinyUNet import TinyUNet
-import monounet.MonogenicNets
+from monounet import MonogenicNets, MonoUNets
 from utils import str2bool
-import monounet.MonoUNets
 
 ARCH_NAMES = archs.__all__
-MONO_ARCH_NAMES = monounet.MonogenicNets.__all__
-MONOUNET_ARCH_NAMES = monounet.MonoUNets.__all__
+MONO_ARCH_NAMES = MonogenicNets.__all__
+MONOUNET_ARCH_NAMES = MonoUNets.__all__
 
 
 def load_model(arch, input_channels, num_classes, input_h, input_w, deep_supervision=False):
@@ -30,14 +29,14 @@ def load_model(arch, input_channels, num_classes, input_h, input_w, deep_supervi
     elif arch == "TinyUNet":
         model = TinyUNet(input_channels, num_classes)
     elif arch in MONO_ARCH_NAMES:
-        model = monounet.MonogenicNets.__dict__[arch](
+        model = MonogenicNets.__dict__[arch](
             input_channels,
             num_classes,
             img_size=(input_h, input_w),
             deep_supervision=deep_supervision
         )
     elif arch in MONOUNET_ARCH_NAMES:
-        model = monounet.MonoUNets.__dict__[arch](
+        model = MonoUNets.__dict__[arch](
             in_channels=input_channels,
             num_classes=num_classes,
             img_size=(input_h, input_w),

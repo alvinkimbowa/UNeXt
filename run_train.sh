@@ -10,11 +10,37 @@ export NO_ALBUMENTATIONS_UPDATE=1
 train=1
 eval=1
 analyze=0
-dataset_name="Dataset072_GE_LQP9"
-# dataset_name="Dataset073_GE_LE"
+cascade_refiner=true
+refiner_suffix="refiner"
+mask_dropout=0.0
+mask_dropout_foreground_only=true
+save_mask_debug=true
+mask_debug_samples=1
+mask_debug_every=1
+mask_patch_prob=0.7
+mask_patch_empty_prob=0.1
+mask_patch_bands=4
+mask_patch_min_bands=1
+mask_patch_max_bands=3
+mask_foreground_prob=0.1
+mask_foreground_blobs_min=1
+mask_foreground_blobs_max=1
+mask_foreground_radius_min=6
+mask_foreground_radius_max=24
+mask_shift_prob=0.5
+mask_shift_max=16
+mask_rotate_prob=0.5
+mask_rotate_max_deg=10
+model_dir_suffix=""
+if [[ $cascade_refiner == True || $cascade_refiner == true ]]; then
+    model_dir_suffix="$refiner_suffix"
+fi
+# dataset_name="Dataset072_GE_LQP9"
+dataset_name="Dataset073_GE_LE"
 # dataset_name="Dataset070_Clarius_L15"
+# dataset_name="Dataset050_Tufts_preop_Harkey"
 lr=0.0001
-epochs=400
+epochs=500
 b=8
 fold=0
 resume_ckpt="auto"   # "auto" will use models/<arch_name>/<dataset>/fold_<fold>/checkpoint_latest.pth
@@ -28,17 +54,22 @@ overlay=true
 data_augmentation=false
 largest_component=true
 test_datasets=("Dataset072_GE_LQP9" "Dataset073_GE_LE" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
+# test_datasets=("Dataset073_GE_LE" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
+# test_datasets=("Dataset072_GE_LQP9" "Dataset070_Clarius_L15" "Dataset078_KneeUS_OtherDevices")
+# test_datasets=("Dataset072_GE_LQP9" "Dataset073_GE_LE" "Dataset078_KneeUS_OtherDevices")
+# test_datasets=("Dataset073_GE_LE")
 # test_datasets=("Dataset078_KneeUS_OtherDevices")
-ckpt="model_best.pth"
+# test_datasets=("Dataset079_KneeUS_Ilker")
+ckpt="model_latest.pth"
 
 # Architecture list - comment/uncomment to select which models to use
 # For train/eval: uncomment only ONE architecture
 # For analyze: uncomment ALL architectures you want to analyze
 all_archs=(
-    "UNet"
+    # "MonoUNetBase"
     # "MonoUNetBase"
     # "MonoUNetE1"
-    # "MonoUNetE12"
+    "MonoUNetE12"
     # "MonoUNetE123"
     # "MonoUNetE1234"
     # "MonoUNetE1234D1"
@@ -49,6 +80,7 @@ all_archs=(
     # Exps 0: Our configuration of reduced UNet
     # "XTinyUNet"
     # "XTinyUNetB"
+    # "XTinyUNetL"
     # Exps 1: Semi-baseline: similar to Ulises (visual frontend)
     # "XTinyMonoUNetScale1"
     # "XTinyMonoUNetScale6"
@@ -60,6 +92,8 @@ all_archs=(
     # "XTinyMonoV2GatedEncUNetV0"
     # "XTinyMonoV2GatedEncUNet"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1"    # within the encoder
+    # "XTinyMonoV3GatedEncUNetV1"    # within the encoder
+    # "XTinyMonoV4GatedEncUNetV1"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1B"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1L"    # within the encoder
     # "XTinyMonoV2GatedEncUNetV1LV3"    # within the encoder
@@ -139,6 +173,8 @@ if [[ $fold -eq 5 ]]; then
     fold="all"
 fi
 
+
+echo "gpu: $gpu"
 echo "fold: $fold"
 echo "train: $train"
 echo "eval: $eval"
@@ -165,10 +201,14 @@ if [[ $train -eq 1 ]]; then
     if [[ $data_augmentation == True || $data_augmentation == true ]]; then
         arch_name="${arch_name}DA"
     fi
+    refiner_arch_name="$arch_name"
+    if [[ $cascade_refiner == True || $cascade_refiner == true ]]; then
+        refiner_arch_name="${arch_name}_${refiner_suffix}"
+    fi
 
     if [[ "$resume_ckpt" == "auto" || -z "$resume_ckpt" ]]; then
         # Search for either model_latest.pth (for resuming) or model_final.pth (if training completed)
-        ckpt_dir="models/${arch_name}/${dataset_name}/fold_${fold}"
+        ckpt_dir="models/${refiner_arch_name}/${dataset_name}/fold_${fold}"
         if [[ -f "${ckpt_dir}/model_latest.pth" ]]; then
             resume_ckpt="${ckpt_dir}/model_latest.pth"
         elif [[ -f "${ckpt_dir}/model_final.pth" ]]; then
@@ -181,11 +221,34 @@ if [[ $train -eq 1 ]]; then
     python train.py \
         --dataset $dataset_name \
         --arch $arch \
+        --cascade_refiner $cascade_refiner \
+        --base_arch $arch \
+        --base_ckpt "models/${arch_name}/${dataset_name}/fold_${fold}/${ckpt}" \
+        --model_dir_suffix $refiner_suffix \
+        --mask_dropout $mask_dropout \
+        --mask_dropout_foreground_only $mask_dropout_foreground_only \
+        --mask_patch_prob $mask_patch_prob \
+        --mask_patch_empty_prob $mask_patch_empty_prob \
+        --mask_patch_bands $mask_patch_bands \
+        --mask_patch_min_bands $mask_patch_min_bands \
+        --mask_patch_max_bands $mask_patch_max_bands \
+        --mask_foreground_prob $mask_foreground_prob \
+        --mask_foreground_blobs_min $mask_foreground_blobs_min \
+        --mask_foreground_blobs_max $mask_foreground_blobs_max \
+        --mask_foreground_radius_min $mask_foreground_radius_min \
+        --mask_foreground_radius_max $mask_foreground_radius_max \
+        --mask_shift_prob $mask_shift_prob \
+        --mask_shift_max $mask_shift_max \
+        --mask_rotate_prob $mask_rotate_prob \
+        --mask_rotate_max_deg $mask_rotate_max_deg \
+        --save_mask_debug $save_mask_debug \
+        --mask_debug_samples $mask_debug_samples \
+        --mask_debug_every $mask_debug_every \
         --lr $lr \
         --epochs $epochs \
         --input_w $input_w \
         --input_h $input_h \
-        --b $b \
+        -b $b \
         --fold $fold \
         --min_lr $min_lr \
         --loss $loss \
@@ -218,7 +281,8 @@ if [[ $eval -eq 1 ]]; then
         --deep_supervision $deep_supervision \
         --data_augmentation $data_augmentation \
         --overlay $overlay \
-        --largest_component $largest_component
+        --largest_component $largest_component \
+        --model_dir_suffix $model_dir_suffix
     done
 fi
 
@@ -259,6 +323,9 @@ if [[ $analyze -eq 1 ]]; then
         fi
         
         analyze_args="--arch $current_arch --input_channels $input_channels --input_h $analyze_input_h --input_w $analyze_input_w --gpu $gpu --deep_supervision $analyze_deep_supervision"
+        if [[ $cascade_refiner == True || $cascade_refiner == true ]]; then
+            analyze_args="$analyze_args --cascade_refiner $cascade_refiner --base_arch $current_arch --base_ckpt models/${current_arch}/${dataset_name}/fold_${fold}/${ckpt} --mask_dropout $mask_dropout --mask_dropout_foreground_only $mask_dropout_foreground_only --mask_patch_prob $mask_patch_prob --mask_patch_empty_prob $mask_patch_empty_prob --mask_patch_bands $mask_patch_bands --mask_patch_min_bands $mask_patch_min_bands --mask_patch_max_bands $mask_patch_max_bands --mask_foreground_prob $mask_foreground_prob --mask_foreground_blobs_min $mask_foreground_blobs_min --mask_foreground_blobs_max $mask_foreground_blobs_max --mask_foreground_radius_min $mask_foreground_radius_min --mask_foreground_radius_max $mask_foreground_radius_max --mask_shift_prob $mask_shift_prob --mask_shift_max $mask_shift_max --mask_rotate_prob $mask_rotate_prob --mask_rotate_max_deg $mask_rotate_max_deg"
+        fi
         
         # Save analysis to model directory if it exists
         if [[ $data_augmentation == true ]]; then
@@ -266,6 +333,9 @@ if [[ $analyze -eq 1 ]]; then
         fi
 
         model_dir="models/$current_arch"
+        if [[ $cascade_refiner == True || $cascade_refiner == true ]]; then
+            model_dir="models/${current_arch}_${refiner_suffix}"
+        fi
         echo "model_dir: $model_dir"
         if [[ -d "$model_dir" ]]; then
             analyze_args="$analyze_args --save $model_dir/model_analysis.json"

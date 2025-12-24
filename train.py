@@ -61,6 +61,56 @@ def parse_args():
                         help='image width')
     parser.add_argument('--input_h', default=256, type=int,
                         help='image height')
+    parser.add_argument('--cascade_refiner', default=False, type=str2bool,
+                        help='train a refiner model with a frozen base model')
+    parser.add_argument('--base_arch', default=None,
+                        help='base model architecture for cascade')
+    parser.add_argument('--base_ckpt', default=None,
+                        help='checkpoint path for the frozen base model')
+    parser.add_argument('--mask_threshold', default=0.5, type=float,
+                        help='threshold for converting base logits to mask')
+    parser.add_argument('--mask_class', default=1, type=int,
+                        help='class index to use for mask when base has >1 channel')
+    parser.add_argument('--mask_dropout', default=0.0, type=float,
+                        help='dropout probability for the base mask during refiner training')
+    parser.add_argument('--mask_dropout_foreground_only', default=False, type=str2bool,
+                        help='apply mask dropout only on foreground pixels')
+    parser.add_argument('--save_mask_debug', default=False, type=str2bool,
+                        help='save debug images of masked inputs during training')
+    parser.add_argument('--mask_debug_samples', default=4, type=int,
+                        help='number of debug samples to save per epoch')
+    parser.add_argument('--mask_debug_every', default=1, type=int,
+                        help='save debug masks every N epochs')
+    parser.add_argument('--mask_patch_prob', default=0.0, type=float,
+                        help='probability to apply patch masking on the base mask')
+    parser.add_argument('--mask_patch_empty_prob', default=0.0, type=float,
+                        help='probability to replace the base mask with all zeros')
+    parser.add_argument('--mask_patch_bands', default=4, type=int,
+                        help='number of vertical bands for patch masking')
+    parser.add_argument('--mask_patch_min_bands', default=1, type=int,
+                        help='min number of bands to mask')
+    parser.add_argument('--mask_patch_max_bands', default=2, type=int,
+                        help='max number of bands to mask')
+    parser.add_argument('--mask_foreground_prob', default=0.0, type=float,
+                        help='probability to add random foreground blobs to the base mask')
+    parser.add_argument('--mask_foreground_blobs_min', default=1, type=int,
+                        help='min number of random foreground blobs')
+    parser.add_argument('--mask_foreground_blobs_max', default=3, type=int,
+                        help='max number of random foreground blobs')
+    parser.add_argument('--mask_foreground_radius_min', default=6, type=int,
+                        help='min radius (px) for random foreground blobs')
+    parser.add_argument('--mask_foreground_radius_max', default=24, type=int,
+                        help='max radius (px) for random foreground blobs')
+    parser.add_argument('--mask_shift_prob', default=0.0, type=float,
+                        help='probability to shift the base mask')
+    parser.add_argument('--mask_shift_max', default=16, type=int,
+                        help='max pixel shift for mask translation')
+    parser.add_argument('--mask_rotate_prob', default=0.0, type=float,
+                        help='probability to rotate the base mask')
+    parser.add_argument('--mask_rotate_max_deg', default=10.0, type=float,
+                        help='max degrees for mask rotation')
+    parser.add_argument('--model_dir_suffix', default='',
+                        help='optional suffix for model directory naming')
     
     # loss
     parser.add_argument('--loss', default='BCEDiceLoss',
@@ -117,6 +167,168 @@ def parse_args():
     config = parser.parse_args()
 
     return config
+
+
+class CascadedSegModel(nn.Module):
+    def __init__(self, base_model, refiner_model, mask_threshold=0.5, mask_class=1,
+                 mask_dropout=0.0, mask_dropout_foreground_only=False, mask_patch_prob=0.0,
+                 mask_patch_empty_prob=0.0, mask_patch_bands=4, mask_patch_min_bands=1,
+                 mask_patch_max_bands=2, mask_foreground_prob=0.0,
+                 mask_foreground_blobs_min=1, mask_foreground_blobs_max=3,
+                 mask_foreground_radius_min=6, mask_foreground_radius_max=24,
+                 mask_shift_prob=0.0, mask_shift_max=16,
+                 mask_rotate_prob=0.0, mask_rotate_max_deg=10.0):
+        super().__init__()
+        self.base_model = base_model
+        self.refiner_model = refiner_model
+        self.mask_threshold = mask_threshold
+        self.mask_class = mask_class
+        self.mask_dropout = mask_dropout
+        self.mask_dropout_foreground_only = mask_dropout_foreground_only
+        self.mask_patch_prob = mask_patch_prob
+        self.mask_patch_empty_prob = mask_patch_empty_prob
+        self.mask_patch_bands = mask_patch_bands
+        self.mask_patch_min_bands = mask_patch_min_bands
+        self.mask_patch_max_bands = mask_patch_max_bands
+        self.mask_foreground_prob = mask_foreground_prob
+        self.mask_foreground_blobs_min = mask_foreground_blobs_min
+        self.mask_foreground_blobs_max = mask_foreground_blobs_max
+        self.mask_foreground_radius_min = mask_foreground_radius_min
+        self.mask_foreground_radius_max = mask_foreground_radius_max
+        self.mask_shift_prob = mask_shift_prob
+        self.mask_shift_max = mask_shift_max
+        self.mask_rotate_prob = mask_rotate_prob
+        self.mask_rotate_max_deg = mask_rotate_max_deg
+        for p in self.base_model.parameters():
+            p.requires_grad = False
+        self.base_model.eval()
+
+    def train(self, mode=True):
+        super().train(mode)
+        # Keep the base model frozen regardless of training mode.
+        self.base_model.eval()
+        return self
+
+    def _base_to_mask(self, base_output, target_size):
+        if isinstance(base_output, (list, tuple)):
+            base_output = base_output[-1]
+        if base_output.dim() != 4:
+            raise ValueError("Base model output must be a 4D tensor")
+        if base_output.size(1) > 1:
+            probs = torch.softmax(base_output, dim=1)
+            pred = torch.argmax(probs, dim=1, keepdim=True)
+            mask = (pred == self.mask_class).float()
+        else:
+            probs = torch.sigmoid(base_output)
+            mask = (probs >= self.mask_threshold).float()
+        if mask.size(2) != target_size[0] or mask.size(3) != target_size[1]:
+            mask = F.interpolate(mask, size=target_size, mode='nearest')
+        return mask
+
+    def _shift_mask(self, mask, dy, dx):
+        b, c, h, w = mask.shape
+        out = torch.zeros_like(mask)
+        y1 = max(0, dy)
+        y2 = min(h, h + dy)
+        x1 = max(0, dx)
+        x2 = min(w, w + dx)
+        src_y1 = max(0, -dy)
+        src_y2 = src_y1 + (y2 - y1)
+        src_x1 = max(0, -dx)
+        src_x2 = src_x1 + (x2 - x1)
+        if y2 > y1 and x2 > x1:
+            out[:, :, y1:y2, x1:x2] = mask[:, :, src_y1:src_y2, src_x1:src_x2]
+        return out
+
+    def _rotate_mask(self, mask, angles_deg):
+        b, c, h, w = mask.shape
+        angles = angles_deg * (torch.pi / 180.0)
+        cos_a = torch.cos(angles)
+        sin_a = torch.sin(angles)
+        theta = torch.zeros(b, 2, 3, device=mask.device, dtype=mask.dtype)
+        theta[:, 0, 0] = cos_a
+        theta[:, 0, 1] = -sin_a
+        theta[:, 1, 0] = sin_a
+        theta[:, 1, 1] = cos_a
+        grid = F.affine_grid(theta, mask.size(), align_corners=False)
+        return F.grid_sample(mask, grid, mode='nearest', padding_mode='zeros', align_corners=False)
+
+    def _apply_mask_augment(self, mask):
+        if self.training and self.mask_shift_prob > 0 and self.mask_shift_max > 0:
+            apply_shift = (torch.rand(mask.size(0), device=mask.device) < self.mask_shift_prob)
+            if apply_shift.any():
+                max_shift = int(self.mask_shift_max)
+                for idx in torch.nonzero(apply_shift, as_tuple=False).flatten():
+                    dy = int(torch.randint(-max_shift, max_shift + 1, (1,), device=mask.device).item())
+                    dx = int(torch.randint(-max_shift, max_shift + 1, (1,), device=mask.device).item())
+                    mask[idx:idx + 1] = self._shift_mask(mask[idx:idx + 1], dy, dx)
+        if self.training and self.mask_rotate_prob > 0 and self.mask_rotate_max_deg > 0:
+            apply_rot = (torch.rand(mask.size(0), device=mask.device) < self.mask_rotate_prob)
+            if apply_rot.any():
+                max_deg = float(self.mask_rotate_max_deg)
+                angles = torch.zeros(mask.size(0), device=mask.device, dtype=mask.dtype)
+                angles[apply_rot] = (torch.rand(int(apply_rot.sum()), device=mask.device) * 2 - 1) * max_deg
+                mask = self._rotate_mask(mask, angles)
+        if self.training and self.mask_patch_empty_prob > 0:
+            empty_keep = (torch.rand(mask.size(0), 1, 1, 1, device=mask.device) >= self.mask_patch_empty_prob).float()
+            mask = mask * empty_keep
+        if self.training and self.mask_patch_prob > 0 and self.mask_patch_bands > 1:
+            apply_patch = (torch.rand(mask.size(0), device=mask.device) < self.mask_patch_prob)
+            if apply_patch.any():
+                _, _, h, w = mask.shape
+                bands = self.mask_patch_bands
+                band_width = w // bands
+                for idx in torch.nonzero(apply_patch, as_tuple=False).flatten():
+                    k_min = max(1, min(self.mask_patch_min_bands, bands))
+                    k_max = max(k_min, min(self.mask_patch_max_bands, bands))
+                    k = int(torch.randint(k_min, k_max + 1, (1,), device=mask.device).item())
+                    band_indices = torch.randperm(bands, device=mask.device)[:k]
+                    for b in band_indices:
+                        start = int(b.item() * band_width)
+                        end = int((b.item() + 1) * band_width) if b.item() < bands - 1 else w
+                        mask[idx, :, :, start:end] = 0
+        if self.training and self.mask_foreground_prob > 0:
+            apply_fg = (torch.rand(mask.size(0), device=mask.device) < self.mask_foreground_prob)
+            if apply_fg.any():
+                _, _, h, w = mask.shape
+                for idx in torch.nonzero(apply_fg, as_tuple=False).flatten():
+                    rmin = max(1, int(self.mask_foreground_radius_min))
+                    rmax = max(rmin, int(self.mask_foreground_radius_max))
+                    nmin = max(1, int(self.mask_foreground_blobs_min))
+                    nmax = max(nmin, int(self.mask_foreground_blobs_max))
+                    n = int(torch.randint(nmin, nmax + 1, (1,), device=mask.device).item())
+                    for _ in range(n):
+                        k = int(torch.randint(rmin, rmax + 1, (1,), device=mask.device).item())
+                        k = max(3, k | 1)  # odd kernel size >= 3
+                        k = min(k, h if h % 2 == 1 else h - 1, w if w % 2 == 1 else w - 1)
+                        noise = torch.rand(1, 1, h, w, device=mask.device)
+                        smooth = F.avg_pool2d(noise, kernel_size=k, stride=1, padding=k // 2)
+                        q = 0.97 + 0.02 * torch.rand(1, device=mask.device)
+                        thresh = torch.quantile(smooth.view(-1), q)
+                        blob = (smooth > thresh).float()
+                        blob = F.max_pool2d(blob, kernel_size=3, stride=1, padding=1)
+                        mask[idx, 0] = torch.clamp(mask[idx, 0] + blob[0, 0], 0, 1)
+        if self.training and self.mask_dropout > 0:
+            if self.mask_dropout_foreground_only:
+                keep = (torch.rand_like(mask) >= self.mask_dropout).float()
+                mask = mask * keep
+            else:
+                keep = (torch.rand(mask.size(0), 1, 1, 1, device=mask.device) >= self.mask_dropout).float()
+                mask = mask * keep
+        return mask
+
+    def make_mask(self, x, apply_dropout=True):
+        with torch.no_grad():
+            base_output = self.base_model(x)
+        mask = self._base_to_mask(base_output, x.shape[2:])
+        if apply_dropout:
+            mask = self._apply_mask_augment(mask)
+        return mask
+
+    def forward(self, x):
+        mask = self.make_mask(x, apply_dropout=True)
+        refined_input = torch.cat([x, mask], dim=1)
+        return self.refiner_model(refined_input)
 
 def plot_training_curves(log_data, output_path):
     """
@@ -249,7 +461,7 @@ def save_mono_param_logs(mono_history, model_dir):
 
 
 # args = parser.parse_args()
-def train(config, train_loader, model, criterion, optimizer):
+def train(config, train_loader, model, criterion, optimizer, epoch):
     avg_meters = {'loss': AverageMeter(),
                   'iou': AverageMeter(),
                   'dice': AverageMeter()}
@@ -257,7 +469,7 @@ def train(config, train_loader, model, criterion, optimizer):
     model.train()
 
     pbar = tqdm(total=len(train_loader))
-    for input, target, _ in train_loader:
+    for batch_idx, (input, target, _) in enumerate(train_loader):
         input = input.cuda()
         target = target.cuda()
 
@@ -288,6 +500,28 @@ def train(config, train_loader, model, criterion, optimizer):
         avg_meters['loss'].update(loss.item(), input.size(0))
         avg_meters['iou'].update(iou, input.size(0))
         avg_meters['dice'].update(dice, input.size(0))
+
+        if (config.get('save_mask_debug') and config.get('cascade_refiner') and
+                hasattr(model, 'make_mask') and batch_idx == 0 and
+                (epoch % max(config.get('mask_debug_every', 1), 1) == 0)):
+            debug_dir = os.path.join(config['model_dir'], 'debug')
+            os.makedirs(debug_dir, exist_ok=True)
+            with torch.no_grad():
+                mask = model.make_mask(input, apply_dropout=True).cpu()
+            max_samples = min(config.get('mask_debug_samples', 4), input.size(0))
+            for i in range(max_samples):
+                fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+                img = input[i, 0].detach().cpu().numpy()
+                axes[0].imshow(img, cmap='gray')
+                axes[0].set_title('input')
+                axes[0].axis('off')
+                axes[1].imshow(mask[i, 0].numpy(), cmap='gray')
+                axes[1].set_title('mask')
+                axes[1].axis('off')
+                fig.tight_layout()
+                out_path = os.path.join(debug_dir, f'sample_{i}.png')
+                plt.savefig(out_path, dpi=150, bbox_inches='tight')
+                plt.close(fig)
 
         postfix = OrderedDict([
             ('loss', avg_meters['loss'].avg),
@@ -362,8 +596,12 @@ def main():
         arch_name += 'DS'
     if config['data_augmentation']:
         arch_name += 'DA'
+    if config.get('model_dir_suffix'):
+        arch_name += f"_{config['model_dir_suffix']}"
     model_dir = f"models/{arch_name}/{config['dataset']}/fold_{fold_str}"
+    print("model dir:", model_dir)
     os.makedirs(model_dir, exist_ok=True)
+    config['model_dir'] = model_dir
     
     if config['name'] is None:
         if config['deep_supervision']:
@@ -387,26 +625,61 @@ def main():
 
     cudnn.benchmark = True
 
-    # create model
-    if config['arch'] == "UNext" or config['arch'] == "UNext_S":
-        model = archs.__dict__[config['arch']](config['num_classes'],
-                                               config['input_channels'],
-                                               config['deep_supervision'])
-    elif config['arch'] == "TinyUNet":
-        model = TinyUNet(config['input_channels'],
-                         config['num_classes'])
-    elif config['arch'] in MONO_ARCH_NAMES:
-        model = MonogenicNets.__dict__[config['arch']](config['input_channels'],
-                                                                config['num_classes'],
-                                                                img_size=(config['input_h'], config['input_w']),
-                                                                deep_supervision=config['deep_supervision'])
-    elif config['arch'] in MONOUNET_ARCH_NAMES:
-        model = MonoUNets.__dict__[config['arch']](in_channels=config['input_channels'],
-                                                                num_classes=config['num_classes'],
-                                                                img_size=(config['input_h'], config['input_w']),
-                                                                deep_supervision=config['deep_supervision'])
-    else:
+    def build_model(arch_name, input_channels):
+        if arch_name == "UNext" or arch_name == "UNext_S":
+            return archs.__dict__[arch_name](config['num_classes'],
+                                             input_channels,
+                                             config['deep_supervision'])
+        if arch_name == "TinyUNet":
+            return TinyUNet(input_channels, config['num_classes'])
+        if arch_name in MONO_ARCH_NAMES:
+            return MonogenicNets.__dict__[arch_name](input_channels,
+                                                     config['num_classes'],
+                                                     img_size=(config['input_h'], config['input_w']),
+                                                     deep_supervision=config['deep_supervision'])
+        if arch_name in MONOUNET_ARCH_NAMES:
+            return MonoUNets.__dict__[arch_name](in_channels=input_channels,
+                                                 num_classes=config['num_classes'],
+                                                 img_size=(config['input_h'], config['input_w']),
+                                                 deep_supervision=config['deep_supervision'])
         raise NotImplementedError
+
+    # create model
+    if config['cascade_refiner']:
+        if not config['base_ckpt']:
+            raise ValueError("cascade_refiner requires --base_ckpt for the frozen base model")
+        base_arch = config['base_arch'] or config['arch']
+        base_model = build_model(base_arch, config['input_channels'])
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        base_ckpt = torch.load(config['base_ckpt'], weights_only=False, map_location=device)
+        base_state = base_ckpt.get('model_state_dict', base_ckpt.get('state_dict', base_ckpt))
+        base_model.load_state_dict(base_state)
+        refiner_in_channels = config['input_channels'] + 1
+        refiner_model = build_model(config['arch'], refiner_in_channels)
+        model = CascadedSegModel(
+            base_model=base_model,
+            refiner_model=refiner_model,
+            mask_threshold=config['mask_threshold'],
+            mask_class=config['mask_class'],
+            mask_dropout=config.get('mask_dropout', 0.0),
+            mask_dropout_foreground_only=config.get('mask_dropout_foreground_only', False),
+            mask_patch_prob=config.get('mask_patch_prob', 0.0),
+            mask_patch_empty_prob=config.get('mask_patch_empty_prob', 0.0),
+            mask_patch_bands=config.get('mask_patch_bands', 4),
+            mask_patch_min_bands=config.get('mask_patch_min_bands', 1),
+            mask_patch_max_bands=config.get('mask_patch_max_bands', 2),
+            mask_foreground_prob=config.get('mask_foreground_prob', 0.0),
+            mask_foreground_blobs_min=config.get('mask_foreground_blobs_min', 1),
+            mask_foreground_blobs_max=config.get('mask_foreground_blobs_max', 3),
+            mask_foreground_radius_min=config.get('mask_foreground_radius_min', 6),
+            mask_foreground_radius_max=config.get('mask_foreground_radius_max', 24),
+            mask_shift_prob=config.get('mask_shift_prob', 0.0),
+            mask_shift_max=config.get('mask_shift_max', 16),
+            mask_rotate_prob=config.get('mask_rotate_prob', 0.0),
+            mask_rotate_max_deg=config.get('mask_rotate_max_deg', 10.0),
+        )
+    else:
+        model = build_model(config['arch'], config['input_channels'])
 
     print(model)
     model = model.cuda()
@@ -524,7 +797,7 @@ def main():
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
         # train for one epoch
-        train_log = train(config, train_loader, model, criterion, optimizer)
+        train_log = train(config, train_loader, model, criterion, optimizer, epoch)
         # evaluate on validation set
         val_log = validate(config, val_loader, model, criterion)
 

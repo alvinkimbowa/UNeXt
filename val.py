@@ -6,6 +6,7 @@ import cv2
 import csv
 import torch
 import torch.backends.cudnn as cudnn
+import torch.nn.functional as F
 import yaml
 from albumentations.augmentations import transforms
 from albumentations.core.composition import Compose
@@ -29,6 +30,91 @@ from monounet.MonogenicNets import center_crop
 
 MONO_ARCH_NAMES = MonogenicNets.__all__
 MONOUNET_ARCH_NAMES = MonoUNets.__all__
+
+class CascadedSegModel(torch.nn.Module):
+    def __init__(self, base_model, refiner_model, mask_threshold=0.5, mask_class=1,
+                 mask_dropout=0.0, mask_dropout_foreground_only=False, mask_patch_prob=0.0,
+                 mask_patch_empty_prob=0.0, mask_patch_bands=4, mask_patch_min_bands=1,
+                 mask_patch_max_bands=2, mask_foreground_prob=0.0,
+                 mask_foreground_blobs_min=1, mask_foreground_blobs_max=3,
+                 mask_foreground_radius_min=6, mask_foreground_radius_max=24,
+                 mask_shift_prob=0.0, mask_shift_max=16,
+                 mask_rotate_prob=0.0, mask_rotate_max_deg=10.0):
+        super().__init__()
+        self.base_model = base_model
+        self.refiner_model = refiner_model
+        self.mask_threshold = mask_threshold
+        self.mask_class = mask_class
+        self.mask_dropout = mask_dropout
+        self.mask_dropout_foreground_only = mask_dropout_foreground_only
+        self.mask_patch_prob = mask_patch_prob
+        self.mask_patch_empty_prob = mask_patch_empty_prob
+        self.mask_patch_bands = mask_patch_bands
+        self.mask_patch_min_bands = mask_patch_min_bands
+        self.mask_patch_max_bands = mask_patch_max_bands
+        self.mask_foreground_prob = mask_foreground_prob
+        self.mask_foreground_blobs_min = mask_foreground_blobs_min
+        self.mask_foreground_blobs_max = mask_foreground_blobs_max
+        self.mask_foreground_radius_min = mask_foreground_radius_min
+        self.mask_foreground_radius_max = mask_foreground_radius_max
+        self.mask_shift_prob = mask_shift_prob
+        self.mask_shift_max = mask_shift_max
+        self.mask_rotate_prob = mask_rotate_prob
+        self.mask_rotate_max_deg = mask_rotate_max_deg
+        for p in self.base_model.parameters():
+            p.requires_grad = False
+        self.base_model.eval()
+
+    def train(self, mode=True):
+        super().train(mode)
+        # Keep the base model frozen regardless of training mode.
+        self.base_model.eval()
+        return self
+
+    def _base_to_mask(self, base_output, target_size):
+        if isinstance(base_output, (list, tuple)):
+            base_output = base_output[-1]
+        if base_output.dim() != 4:
+            raise ValueError("Base model output must be a 4D tensor")
+        if base_output.size(1) > 1:
+            probs = torch.softmax(base_output, dim=1)
+            pred = torch.argmax(probs, dim=1, keepdim=True)
+            mask = (pred == self.mask_class).float()
+        else:
+            probs = torch.sigmoid(base_output)
+            mask = (probs >= self.mask_threshold).float()
+        if mask.size(2) != target_size[0] or mask.size(3) != target_size[1]:
+            mask = F.interpolate(mask, size=target_size, mode='nearest')
+        return mask
+
+    def forward(self, x):
+        with torch.no_grad():
+            base_output = self.base_model(x)
+        mask = self._base_to_mask(base_output, x.shape[2:])
+        refined_input = torch.cat([x, mask], dim=1)
+        return self.refiner_model(refined_input)
+
+
+def build_model(arch_name, input_channels, num_classes, input_h, input_w, deep_supervision=False):
+    if arch_name == "UNext" or arch_name == "UNext_S":
+        return archs.__dict__[arch_name](num_classes, input_channels, deep_supervision)
+    if arch_name == "TinyUNet":
+        return TinyUNet(input_channels, num_classes)
+    if arch_name in MONO_ARCH_NAMES:
+        return MonogenicNets.__dict__[arch_name](
+            input_channels,
+            num_classes,
+            img_size=(input_h, input_w),
+            deep_supervision=deep_supervision,
+        )
+    if arch_name in MONOUNET_ARCH_NAMES:
+        return MonoUNets.__dict__[arch_name](
+            in_channels=input_channels,
+            num_classes=num_classes,
+            img_size=(input_h, input_w),
+            deep_supervision=deep_supervision,
+        )
+    raise NotImplementedError
 
 def visualize_prediction(img, pred, gt=None, dice=None, masd=None, hd95=None, save_path=None):
     """
@@ -104,6 +190,8 @@ def parse_args():
                         help='overlay predictions on images and save visualized images (True or False)')
     parser.add_argument('--largest_component', type=str2bool, default=False,
                         help='keep only the largest connected component (True or False)')
+    parser.add_argument('--model_dir_suffix', default='',
+                        help='optional suffix for model directory naming')
     args = parser.parse_args()
 
     return args
@@ -128,6 +216,8 @@ def main():
         arch_name += 'DS'
     if args.data_augmentation:
         arch_name += 'DA'
+    if args.model_dir_suffix:
+        arch_name += f"_{args.model_dir_suffix}"
     model_dir = f"models/{arch_name}/{args.train_dataset}/fold_{args.train_fold}"
     with open(f'{model_dir}/config.yml', 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
@@ -140,29 +230,66 @@ def main():
     cudnn.benchmark = True
 
     print("=> creating model %s" % config['arch'])
-    if config['arch'] == "UNext" or config['arch'] == "UNext_S":
-        model = archs.__dict__[config['arch']](config['num_classes'],
-                                               config['input_channels'],
-                                               deep_supervision=False)
-    elif config['arch'] == "TinyUNet":
-        model = TinyUNet(config['input_channels'],
-                         config['num_classes'])
-    elif config['arch'] in MONO_ARCH_NAMES:
-        model = MonogenicNets.__dict__[config['arch']](config['input_channels'],
-                                                                config['num_classes'],
-                                                                img_size=(config['input_h'], config['input_w']),
-                                                                deep_supervision=False)
-    elif config['arch'] in MONOUNET_ARCH_NAMES:
-        model = MonoUNets.__dict__[config['arch']](in_channels=config['input_channels'],
-                                                                num_classes=config['num_classes'],
-                                                                img_size=(config['input_h'], config['input_w']),
-                                                                deep_supervision=False)
+    if config.get('cascade_refiner'):
+        base_arch = config.get('base_arch') or config['arch']
+        base_model = build_model(
+            base_arch,
+            config['input_channels'],
+            config['num_classes'],
+            config['input_h'],
+            config['input_w'],
+            deep_supervision=False,
+        )
+        if config.get('base_ckpt'):
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            base_ckpt = torch.load(config['base_ckpt'], weights_only=False, map_location=device)
+            base_state = base_ckpt.get('model_state_dict', base_ckpt.get('state_dict', base_ckpt))
+            base_model.load_state_dict(base_state)
+        refiner_model = build_model(
+            config['arch'],
+            config['input_channels'] + 1,
+            config['num_classes'],
+            config['input_h'],
+            config['input_w'],
+            deep_supervision=False,
+        )
+        model = CascadedSegModel(
+            base_model=base_model,
+            refiner_model=refiner_model,
+            mask_threshold=config.get('mask_threshold', 0.5),
+            mask_class=config.get('mask_class', 1),
+            mask_dropout=config.get('mask_dropout', 0.0),
+            mask_dropout_foreground_only=config.get('mask_dropout_foreground_only', False),
+            mask_patch_prob=config.get('mask_patch_prob', 0.0),
+            mask_patch_empty_prob=config.get('mask_patch_empty_prob', 0.0),
+            mask_patch_bands=config.get('mask_patch_bands', 4),
+            mask_patch_min_bands=config.get('mask_patch_min_bands', 1),
+            mask_patch_max_bands=config.get('mask_patch_max_bands', 2),
+            mask_foreground_prob=config.get('mask_foreground_prob', 0.0),
+            mask_foreground_blobs_min=config.get('mask_foreground_blobs_min', 1),
+            mask_foreground_blobs_max=config.get('mask_foreground_blobs_max', 3),
+            mask_foreground_radius_min=config.get('mask_foreground_radius_min', 6),
+            mask_foreground_radius_max=config.get('mask_foreground_radius_max', 24),
+            mask_shift_prob=config.get('mask_shift_prob', 0.0),
+            mask_shift_max=config.get('mask_shift_max', 16),
+            mask_rotate_prob=config.get('mask_rotate_prob', 0.0),
+            mask_rotate_max_deg=config.get('mask_rotate_max_deg', 10.0),
+        )
     else:
-        raise NotImplementedError
+        model = build_model(
+            config['arch'],
+            config['input_channels'],
+            config['num_classes'],
+            config['input_h'],
+            config['input_w'],
+            deep_supervision=False,
+        )
     
     model = model.cuda()
 
-    model.load_state_dict(torch.load(os.path.join(model_dir, args.ckpt)))
+    ckpt = torch.load(os.path.join(model_dir, args.ckpt), weights_only=False, map_location="cuda")
+    state_dict = ckpt.get('model_state_dict', ckpt.get('state_dict', ckpt))
+    model.load_state_dict(state_dict)
     model.eval()
 
     val_transform = Compose([

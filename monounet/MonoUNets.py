@@ -13,6 +13,8 @@ __all__ = [
     'MonoUNetE12V2',
     'MonoUNetE123V2',
     'MonoUNetE1234V2',
+    'MonoUNetE1Gated',
+    'MonoUNetE123V2Gated',
     # 'MonoUNetE1234D1',
     ## Only run the next two if the previous one is successful.
     # 'MonoUNetE1234D12',
@@ -188,7 +190,7 @@ class MonoUNetEEncoder(XTinyEncoder):
         if self.gate_encoder:
             # A very simple, stable residual gate per stage:
             # x <- x + sigma(a_i) * lp
-            self.gate_a = nn.ParameterList([nn.Parameter(torch.zeros(1)) for _ in range(num_stages)])
+            self.gate_a = nn.ParameterList([nn.Parameter(torch.zeros(filters[i])) for i in range(inject_upto)])
 
         # Replace pooling with your norm+act version (since your MonoUNetE1Encoder did)
         self.pooling_layers = nn.ModuleList([
@@ -204,10 +206,10 @@ class MonoUNetEEncoder(XTinyEncoder):
         if not self.gate_encoder:
             return x + lp_stage
         alpha = torch.sigmoid(self.gate_a[i])  # scalar in (0,1)
+        alpha = alpha.view(1, -1, 1, 1)
         return x + alpha * lp_stage
 
-    def forward(self, x):
-        lp_feat = self.mono2d(x)  # B x Cmono x H x W
+    def _forward_with_lp_feat(self, x, lp_feat):
         x = self.stem(x)          # B x C0 x H x W
 
         skip_connections = []
@@ -227,6 +229,29 @@ class MonoUNetEEncoder(XTinyEncoder):
 
         return x, skip_connections
 
+    def forward(self, x):
+        lp_feat = self.mono2d(x)  # B x Cmono x H x W
+        return self._forward_with_lp_feat(x, lp_feat)
+
+
+class MonoUNetEEncoderV1(MonoUNetEEncoder):
+    """
+    V1 encoder that mixes monogenic features once at full resolution
+    before projecting to stage widths.
+    """
+    def __init__(self, in_channels=1, filters=None, deep_supervision=True,
+                 inject_upto: int = 1, gate_encoder: bool = True,
+                 nscale: int | None = None, n_freq: int = 1):
+        super().__init__(in_channels, filters, deep_supervision=deep_supervision,
+                         inject_upto=inject_upto, gate_encoder=gate_encoder,
+                         nscale=nscale, n_freq=n_freq)
+        self.mono_mix = nn.Conv2d(self.mono2d.out_channels, self.mono2d.out_channels, kernel_size=1, bias=False)
+
+    def forward(self, x):
+        lp_feat = self.mono2d(x)
+        lp_feat = self.mono_mix(lp_feat)
+        return self._forward_with_lp_feat(x, lp_feat)
+
 
 # -------------------------
 # MonoUNetE variants - Monogenic features injected into encoder stages
@@ -240,6 +265,12 @@ class UNet(MonoUNetBase):
 class MonoUNetE1(MonoUNetBase):
     def __init__(self, **kwargs):
         super().__init__(encoder_cls=MonoUNetEEncoder, encoder_kwargs={"inject_upto": 1, "nscale": 3, "gate_encoder": False}, **kwargs)
+
+
+class MonoUNetE1Gated(MonoUNetBase):
+    def __init__(self, **kwargs):
+        super().__init__(encoder_cls=MonoUNetEEncoderV1, encoder_kwargs={"inject_upto": 1, "nscale": 3, "gate_encoder": True}, **kwargs)
+
 
 class MonoUNetE12(MonoUNetBase):
     def __init__(self, **kwargs):
@@ -262,6 +293,11 @@ class MonoUNetE12V2(MonoUNetBase):
 class MonoUNetE123V2(MonoUNetBase):
     def __init__(self, **kwargs):
         super().__init__(encoder_cls=MonoUNetEEncoder, encoder_kwargs={"n_freq": 3, "inject_upto": 3, "nscale": 3, "gate_encoder": False}, **kwargs)
+
+
+class MonoUNetE123V2Gated(MonoUNetBase):
+    def __init__(self, **kwargs):
+        super().__init__(encoder_cls=MonoUNetEEncoderV1, encoder_kwargs={"n_freq": 3, "inject_upto": 3, "nscale": 3, "gate_encoder": True}, **kwargs)
 
 
 class MonoUNetE1234V2(MonoUNetBase):

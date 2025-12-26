@@ -10,6 +10,9 @@ __all__ = [
     'MonoUNetE12',
     'MonoUNetE123',
     'MonoUNetE1234',
+    'MonoUNetE12V2',
+    'MonoUNetE123V2',
+    'MonoUNetE1234V2',
     # 'MonoUNetE1234D1',
     ## Only run the next two if the previous one is successful.
     # 'MonoUNetE1234D12',
@@ -159,7 +162,7 @@ class MonoUNetEEncoder(XTinyEncoder):
     """
     def __init__(self, in_channels=1, filters=None, deep_supervision=True,
                  inject_upto: int = 1, gate_encoder: bool = True,
-                 nscale: int | None = None):
+                 nscale: int | None = None, n_freq: int = 1):
         super().__init__(in_channels, filters, deep_supervision=deep_supervision)
         filters = filters or []
         num_stages = len(filters)
@@ -168,7 +171,7 @@ class MonoUNetEEncoder(XTinyEncoder):
         self.inject_upto = inject_upto
         self.gate_encoder = gate_encoder
 
-        self.mono2d = Mono2DV3(in_channels, nscale=nscale, norm="std", return_phase=True)
+        self.mono2d = Mono2DV3(in_channels, nscale=nscale, n_freq=n_freq, norm="std", return_phase=True)
 
         # Build LP pyramid progressively (cheap + consistent)
         self.lp_down = nn.ModuleList([
@@ -249,3 +252,20 @@ class MonoUNetE123(MonoUNetBase):
 class MonoUNetE1234(MonoUNetBase):
     def __init__(self, **kwargs):
         super().__init__(encoder_cls=MonoUNetEEncoder, encoder_kwargs={"inject_upto": 4, "nscale": 3, "gate_encoder": False}, **kwargs)
+
+
+class MonoUNetE12V2(MonoUNetBase):
+    def __init__(self, **kwargs):
+        super().__init__(encoder_cls=MonoUNetEEncoder, encoder_kwargs={"n_freq": 2, "inject_upto": 2, "nscale": 3, "gate_encoder": False}, **kwargs)
+
+
+class MonoUNetE123V2(MonoUNetBase):
+    def __init__(self, **kwargs):
+        super().__init__(encoder_cls=MonoUNetEEncoder, encoder_kwargs={"n_freq": 3, "inject_upto": 3, "nscale": 3, "gate_encoder": False}, **kwargs)
+
+
+class MonoUNetE1234V2(MonoUNetBase):
+    def __init__(self, **kwargs):
+        super().__init__(encoder_cls=MonoUNetEEncoder, encoder_kwargs={"n_freq": 4, "inject_upto": 4, "nscale": 3, "gate_encoder": False}, **kwargs)
+
+

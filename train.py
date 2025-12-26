@@ -427,6 +427,8 @@ def main():
             base_ckpt=f"models/{config['arch']}/{config['dataset']}/fold_{config['fold']}/{config['ckpt']}",
             base_kwargs={"in_channels": config['input_channels'], "num_classes": config['num_classes'], "img_size": (config['input_h'], config['input_w']), "deep_supervision": config['deep_supervision']},
             refiner_kwargs={"in_channels": config['input_channels'] + 1, "num_classes": config['num_classes'], "img_size": (config['input_h'], config['input_w']), "deep_supervision": config['deep_supervision']},
+            model_dir=model_dir,
+            debug_samples=4,
         )
 
     print(model)

@@ -61,6 +61,14 @@ def parse_args():
                         help='image width')
     parser.add_argument('--input_h', default=256, type=int,
                         help='image height')
+    parser.add_argument('--cascade', default=False, type=str2bool,
+                        help='use cascade (True or False)')
+    parser.add_argument('--refiner_arch', default='MonoUNetBase', type=str,
+                        help='refiner architecture')
+    parser.add_argument('--resume_ckpt', default='model_latest.pth', type=str,
+                        help='resume checkpoint file')
+    parser.add_argument('--ckpt', default='model_best.pth', type=str,
+                        help='checkpoint file')
     
     # loss
     parser.add_argument('--loss', default='BCEDiceLoss',
@@ -362,6 +370,10 @@ def main():
         arch_name += 'DS'
     if config['data_augmentation']:
         arch_name += 'DA'
+    
+    if config['cascade']:
+        arch_name += 'Cascade'
+    
     model_dir = f"models/{arch_name}/{config['dataset']}/fold_{fold_str}"
     os.makedirs(model_dir, exist_ok=True)
     
@@ -407,6 +419,15 @@ def main():
                                                                 deep_supervision=config['deep_supervision'])
     else:
         raise NotImplementedError
+    
+    if config['cascade']:
+        model = MonoUNets.CascadeBase(
+            base_arch=MonoUNets.__dict__[config['arch']],
+            refiner_arch=MonoUNets.__dict__[config['refiner_arch']],
+            base_ckpt=f"models/{config['arch']}/{config['dataset']}/fold_{config['fold']}/{config['ckpt']}",
+            base_kwargs={"in_channels": config['input_channels'], "num_classes": config['num_classes'], "img_size": (config['input_h'], config['input_w']), "deep_supervision": config['deep_supervision']},
+            refiner_kwargs={"in_channels": config['input_channels'] + 1, "num_classes": config['num_classes'], "img_size": (config['input_h'], config['input_w']), "deep_supervision": config['deep_supervision']},
+        )
 
     print(model)
     model = model.cuda()
@@ -504,7 +525,9 @@ def main():
     start_epoch = 0
 
     device = next(model.parameters()).device
-    ckpt_path = config.get('resume') or os.path.join(model_dir, "model_latest.pth")
+    ckpt_path = os.path.join(model_dir, config['resume_ckpt'])
+    if not os.path.exists(ckpt_path):
+        ckpt_path = os.path.join(model_dir, "model_final.pth")
     if os.path.exists(ckpt_path):
         checkpoint = torch.load(ckpt_path, weights_only=False, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])

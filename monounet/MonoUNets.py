@@ -269,3 +269,42 @@ class MonoUNetE1234V2(MonoUNetBase):
         super().__init__(encoder_cls=MonoUNetEEncoder, encoder_kwargs={"n_freq": 4, "inject_upto": 4, "nscale": 3, "gate_encoder": False}, **kwargs)
 
 
+class CascadeBase(nn.Module):
+    def __init__(
+        self,
+        base_ckpt: str,
+        base_arch: nn.Module,
+        refiner_arch: MonoUNetBase,
+        base_kwargs=None,
+        refiner_kwargs=None,
+        mask_threshold=0.5,
+        mask_class=1,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        base_kwargs = base_kwargs or {}
+        refiner_kwargs = refiner_kwargs or {}
+
+        self.base_model = base_arch(**base_kwargs)
+        self.refiner_model = refiner_arch(**refiner_kwargs)
+        self.mask_threshold = mask_threshold
+        self.mask_class = mask_class
+
+        # load base model
+        ckpt = torch.load(base_ckpt, weights_only=False, map_location="cpu")
+        state = ckpt.get('model_state_dict', ckpt.get('state_dict', ckpt))
+        self.base_model.load_state_dict(state)
+        self.base_model.eval()
+        for p in self.base_model.parameters():
+            p.requires_grad = False
+
+    def _base_to_mask(self, base_output):
+        mask = torch.sigmoid(base_output)
+        return mask >= self.mask_threshold
+
+    def forward(self, x):
+        with torch.no_grad():
+            base_output = self.base_model(x)
+        mask = self._base_to_mask(base_output)
+        refined_input = torch.cat([x, mask], dim=1)
+        return self.refiner_model(refined_input)

@@ -84,6 +84,10 @@ def parse_args():
 
     parser.add_argument('--name', required=True,
                         help='model name')
+    parser.add_argument('--cascade', default=False, type=str2bool,
+                        help='use cascade (True or False)')
+    parser.add_argument('--refiner_arch', default='MonoUNetBase', type=str,
+                        help='refiner architecture')
     parser.add_argument('--train_dataset', default='Dataset073_GE_LE',
                         help='train dataset name')
     parser.add_argument('--train_fold', type=str, required=True,
@@ -128,7 +132,11 @@ def main():
         arch_name += 'DS'
     if args.data_augmentation:
         arch_name += 'DA'
+    base_arch_name = arch_name
+    if args.cascade:
+        arch_name += 'Cascade'
     model_dir = f"models/{arch_name}/{args.train_dataset}/fold_{args.train_fold}"
+    base_model_dir = f"models/{base_arch_name}/{args.train_dataset}/fold_{args.train_fold}"
     with open(f'{model_dir}/config.yml', 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -159,6 +167,15 @@ def main():
                                                                 deep_supervision=False)
     else:
         raise NotImplementedError
+    
+    if args.cascade:
+        model = MonoUNets.CascadeBase(
+            base_arch=MonoUNets.__dict__[config['arch']],
+            refiner_arch=MonoUNets.__dict__[args.refiner_arch],
+            base_ckpt=os.path.join(base_model_dir, args.ckpt),
+            base_kwargs={"in_channels": config['input_channels'], "num_classes": config['num_classes'], "img_size": (config['input_h'], config['input_w']), "deep_supervision": False},
+            refiner_kwargs={"in_channels": config['input_channels'] + 1, "num_classes": config['num_classes'], "img_size": (config['input_h'], config['input_w']), "deep_supervision": False},
+        )
     
     model = model.cuda()
 

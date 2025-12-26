@@ -531,44 +531,59 @@ class Mono2DV2(Mono2D):
 
 class Mono2DV3(Mono2DV2):
     """
-    Mono2DV3: learn ONLY 1 base wavelength per channel (center wl0), and generate the
+    Mono2DV3: learn n_freq base wavelengths per channel (center wl0), and generate the
     remaining nscale wavelengths geometrically using a learnable scaling factor.
-    Bandwidth (sigmaonf) is shared across scales (one per channel).
+    Bandwidth (sigmaonf) is learned per center frequency and shared across its scales.
     """
-    def __init__(self, in_channels: int = 1, nscale: int = 3, factor: float = 2.5, **kwargs):
+    def __init__(
+        self,
+        in_channels: int = 1,
+        nscale: int = 3,
+        n_freq: int = 1,
+        factor: float = 2.5,
+        **kwargs,
+    ):
         self.in_channels = in_channels
         self.nscale = nscale
+        self.n_freq = n_freq
         super().__init__(in_channels, nscale=nscale, **kwargs)
         self.factor = nn.Parameter(self.initialize_factor(factor), requires_grad=self.trainable)
+        self.out_channels = ((
+            int(self.return_input)
+            + int(self.return_phase)
+            + int(self.return_ori)
+            + int(self.return_phase_sym)
+            + int(self.return_phase_asym)
+        ) * self.nscale * self.n_freq * self.in_channels)
 
     def initialize_sigmaonf(self, sigmaonf):
-        # Learn ONE sigmaonf per channel (shared across scales)
+        # Learn one sigmaonf per center frequency (shared across its scales)
         if sigmaonf is None:
-            return torch.randn(self.in_channels, 1) * 0.05
+            return torch.randn(self.in_channels, self.n_freq) * 0.05
         else:
             sigmaonf = torch.as_tensor(sigmaonf, dtype=torch.float32)
             if sigmaonf.ndim == 0:
-                sigmaonf = sigmaonf.repeat(self.in_channels, 1)
+                sigmaonf = sigmaonf.repeat(self.in_channels, self.n_freq)
             else:
                 sigmaonf = sigmaonf.reshape(-1)
-                assert sigmaonf.numel() == self.in_channels
-                sigmaonf = sigmaonf.view(self.in_channels, 1)
+                assert sigmaonf.numel() == self.in_channels * self.n_freq
+                sigmaonf = sigmaonf.view(self.in_channels, self.n_freq)
             valid = torch.all((sigmaonf > 0) & (sigmaonf < 1))
             assert bool(valid)
             return torch.log(sigmaonf / (1 - sigmaonf))
 
     def initialize_wls(self, wls):
-        # Learn ONE base wavelength per channel (wl0)
+        # Learn n_freq base wavelengths per channel (wl0s)
         if wls is None:
-            return torch.randn(self.in_channels, 1)
+            return torch.randn(self.in_channels, self.n_freq)
         else:
             wls = np.asarray(wls)
             assert np.all(wls > 0)
             wls = torch.as_tensor(wls, dtype=torch.float32).reshape(-1)
             if wls.numel() == 1:
-                wls = wls.repeat(self.in_channels)
-            assert wls.numel() == self.in_channels
-            wls = wls.view(self.in_channels, 1)
+                wls = wls.repeat(self.in_channels * self.n_freq)
+            assert wls.numel() == self.in_channels * self.n_freq
+            wls = wls.view(self.in_channels, self.n_freq)
             wls = (wls - self.min_wl) / (self.max_wl - self.min_wl)
             return torch.log(wls / (1 - wls))
 
@@ -605,30 +620,31 @@ class Mono2DV3(Mono2DV2):
 
 
     def get_sigmaonf(self):
-        # Broadcast shared sigmaonf across scales
-        s = torch.sigmoid(self.sigmaonf).clamp(1e-6, 1 - 1e-6)  # (C,1)
-        return s.repeat(1, self.nscale)  # (C,nscale)
+        # Broadcast per-center sigmaonf across scales
+        s = torch.sigmoid(self.sigmaonf).clamp(1e-6, 1 - 1e-6)  # (C,n_freq)
+        s = s.unsqueeze(-1).repeat(1, 1, self.nscale)          # (C,n_freq,nscale)
+        return s.reshape(self.in_channels, self.n_freq * self.nscale)
 
     def get_wls(self):
-        # geometric progression: wl_s = wl0 * r^s, with wl0 learned
-        r = self.get_factor()                   # scalar > 1
+        # geometric progression: wl_s = wl0 * r^s, with wl0 learned per center freq
+        r = self.get_factor()                                       # scalar > 1
         wl0_max = self.max_wl / (r ** (self.nscale - 1))
         wl0_max = torch.clamp(wl0_max, min=self.min_wl + 1e-6)
 
-        wl0 = torch.sigmoid(self.wls)                               # (C,1) in (0,1)
-        wl0 = self.min_wl + wl0 * (wl0_max - self.min_wl)            # (C,1) in [min_wl, max_wl]
+        wl0 = torch.sigmoid(self.wls)                               # (C,n_freq) in (0,1)
+        wl0 = self.min_wl + wl0 * (wl0_max - self.min_wl)           # (C,n_freq) in [min_wl, max_wl]
 
-        exps = torch.arange(self.nscale, device=wl0.device, dtype=wl0.dtype).view(1, self.nscale)
-        wls = wl0 * (r ** exps)                 # (C,nscale)
-        return wls
+        exps = torch.arange(self.nscale, device=wl0.device, dtype=wl0.dtype).view(1, 1, self.nscale)
+        wls = wl0.unsqueeze(-1) * (r ** exps)                       # (C,n_freq,nscale)
+        return wls.reshape(self.in_channels, self.n_freq * self.nscale)
 
     def compute_logGabor(self, radius):
         # Same as Mono2DV2 but uses shared sigmaonf and geometric wls
         wls = self.get_wls()
         fo = 1.0 / wls
-        fo = fo.view(self.in_channels, self.nscale, 1, 1)
+        fo = fo.view(self.in_channels, self.n_freq * self.nscale, 1, 1)
 
-        sigmaonf = self.get_sigmaonf().view(self.in_channels, self.nscale, 1, 1)
+        sigmaonf = self.get_sigmaonf().view(self.in_channels, self.n_freq * self.nscale, 1, 1)
 
         ratio = radius / fo
         numerator = -(torch.log(ratio)) ** 2
@@ -639,4 +655,8 @@ class Mono2DV3(Mono2DV2):
     def get_params(self):
         params = super().get_params()
         params["factor"] = self.get_factor().item()
+        params["n_freq"] = self.n_freq
         return params
+
+    def extra_repr(self) -> str:
+        return f"n_freq={self.n_freq}, " + super().extra_repr()

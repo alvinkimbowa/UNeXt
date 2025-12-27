@@ -372,6 +372,7 @@ def main():
         arch_name += 'DA'
     
     if config['cascade']:
+        base_arch_name = arch_name
         arch_name += 'Cascade'
     
     model_dir = f"models/{arch_name}/{config['dataset']}/fold_{fold_str}"
@@ -424,7 +425,7 @@ def main():
         model = MonoUNets.CascadeBase(
             base_arch=MonoUNets.__dict__[config['arch']],
             refiner_arch=MonoUNets.__dict__[config['refiner_arch']],
-            base_ckpt=f"models/{config['arch']}/{config['dataset']}/fold_{config['fold']}/{config['ckpt']}",
+            base_ckpt=f"models/{base_arch_name}/{config['dataset']}/fold_{config['fold']}/{config['ckpt']}",
             base_kwargs={"in_channels": config['input_channels'], "num_classes": config['num_classes'], "img_size": (config['input_h'], config['input_w']), "deep_supervision": config['deep_supervision']},
             refiner_kwargs={"in_channels": config['input_channels'] + 1, "num_classes": config['num_classes'], "img_size": (config['input_h'], config['input_w']), "deep_supervision": config['deep_supervision']},
             model_dir=model_dir,

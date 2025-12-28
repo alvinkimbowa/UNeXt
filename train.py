@@ -529,7 +529,7 @@ def main():
 
     device = next(model.parameters()).device
     ckpt_path = os.path.join(model_dir, config['resume_ckpt'])
-    if not os.path.exists(ckpt_path):
+    if os.path.exists(os.path.join(model_dir, "model_final.pth")):
         ckpt_path = os.path.join(model_dir, "model_final.pth")
     if os.path.exists(ckpt_path):
         checkpoint = torch.load(ckpt_path, weights_only=False, map_location=device)

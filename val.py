@@ -179,7 +179,10 @@ def main():
     
     model = model.cuda()
 
-    model.load_state_dict(torch.load(os.path.join(model_dir, args.ckpt)))
+    ckpt_path = os.path.join(model_dir, args.ckpt)
+    ckpt_data = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+    state_dict = ckpt_data.get('model_state_dict', ckpt_data.get('network_weights', ckpt_data))
+    model.load_state_dict(state_dict, strict=True)
     model.eval()
 
     val_transform = Compose([
